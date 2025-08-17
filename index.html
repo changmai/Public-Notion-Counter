@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <title>Notion DB 합계 웹앱</title>
+  <script defer src="script.js"></script>
+  <style>
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      max-width: 600px; margin: 40px auto; padding: 30px;
+      border-radius: 12px; background: #fefefe; box-shadow: 0 4px 20px rgba(0,0,0,0.12);
+    }
+    h1 { text-align: center; margin-bottom: 25px; color: #2c3e50; }
+    label { font-weight: 600; margin-top: 12px; display: block; color: #34495e; }
+    input, button, select {
+      margin: 10px 0 18px; padding: 12px; width: 100%; box-sizing: border-box;
+      border: 1px solid #ccc; border-radius: 6px; font-size: 14px; transition: .2s;
+    }
+    input:focus, select:focus { border-color: #3498db; outline: none; box-shadow: 0 0 5px rgba(52,152,219,0.4); }
+    button {
+      cursor: pointer; background: linear-gradient(135deg, #3498db, #2980b9); color: #fff;
+      border: none; font-weight: bold; transition: .2s ease;
+    }
+    button:hover { background: linear-gradient(135deg, #2980b9, #1f6391); transform: translateY(-1px); box-shadow: 0 3px 8px rgba(0,0,0,0.15); }
+    button:active { transform: scale(0.97); }
+    button[disabled]{ opacity:.6; cursor:not-allowed; }
+    #status {
+      margin-top: 20px; font-weight: bold; text-align: center; color: #222;
+      padding: 14px; border-radius: 8px; transition:.3s; animation: fadeIn .4s ease;
+    }
+    #status.success { background: #eafaf1; color: #27ae60; border: 1px solid #bfe5d2; }
+    #status.error   { background: #fdecea; color: #c0392b; border: 1px solid #f5b7b1; }
+    @keyframes fadeIn { from {opacity:0; transform: translateY(5px);} to {opacity:1; transform: translateY(0);} }
+  </style>
+</head>
+<body>
+  <h1>📊 Notion DB 합계</h1>
+
+  <label>프록시 URL</label>
+  <input id="proxy" placeholder="예: https://your-worker.workers.dev">
+
+  <!-- (선택) 토큰을 직접 쓰고 싶으면 여기에 입력. 비워두면 OAuth 쿠키 사용 -->
+  <label>통합 토큰 (선택)</label>
+  <input id="token" placeholder="Notion 통합 토큰 (OAuth 사용 시 비워두기)">
+
+  <button id="login">🔑 Notion으로 로그인</button>
+
+  <label>데이터베이스 ID 또는 공유 링크</label>
+  <input id="databaseInput" placeholder="DB URL 또는 ID">
+
+  <button id="save">💾 설정 저장</button>
+  <button id="loadProps">📥 속성 불러오기</button>
+
+  <label>데이터베이스 속성 선택</label>
+  <select id="propSelect"></select>
+
+  <button id="sumBtn">➕ DB 합계 계산</button>
+
+  <div id="status">상태 메시지가 여기에 표시됩니다.</div>
+</body>
+</html>
