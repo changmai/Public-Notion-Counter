@@ -317,6 +317,13 @@
       
       <button id="loginBtn">🔐 Notion으로 로그인</button>
       <button id="logoutBtn" class="hidden" style="background: #e74c3c;">🚪 로그아웃</button>
+      <button id="refreshBtn" class="hidden" style="background: #f39c12; margin-top: 10px;">🔄 로그인 상태 새로고침</button>
+      
+      <div class="debug-info" style="margin-top: 15px; padding: 10px; background: #f8f9fa; border-radius: 5px; font-size: 12px; color: #666;">
+        <strong>디버그 정보:</strong>
+        <div>세션 쿠키: <span id="sessionDebug">확인 중...</span></div>
+        <div>API 상태: <span id="apiDebug">확인 중...</span></div>
+      </div>
       
       <div class="status" id="loginStatus"></div>
     </div>
