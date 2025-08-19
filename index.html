@@ -1,107 +1,378 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-  <meta charset="UTF-8" />
-  <title>Public Notion Counter</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>📊 Notion 데이터베이스 집계 도구</title>
+  <script defer src="script.js"></script>
   <style>
-    :root{
-      --pri:#2563eb; --ok:#16a34a; --err:#dc2626; --bg:#0b1220; --card:#0f172a; --mut:#94a3b8;
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
     }
-    *{box-sizing:border-box}
-    body{
-      margin:0; padding:32px;
-      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Noto Sans, Arial, "Apple Color Emoji","Segoe UI Emoji";
-      background:linear-gradient(180deg,#0b1220 0%,#111827 100%);
-      color:#e5e7eb;
+    
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      min-height: 100vh;
+      padding: 20px;
+      color: #333;
     }
-    .container{max-width:720px;margin:0 auto}
-    h1{margin:0 0 12px;font-size:28px}
-    p.lead{margin:0 0 24px;color:#cbd5e1}
-    .card{background:var(--card);border:1px solid #1f2937;border-radius:14px;padding:18px 16px;margin:14px 0}
-    label{display:block;font-weight:600;margin:6px 0 8px;color:#dbeafe}
-    input,select,button{
-      width:100%;padding:12px 14px;border-radius:10px;border:1px solid #334155;background:#0b1220;color:#e5e7eb;
-      transition:.2s; font-size:14px;
+    
+    .container {
+      max-width: 700px;
+      margin: 0 auto;
+      background: rgba(255, 255, 255, 0.95);
+      backdrop-filter: blur(10px);
+      border-radius: 20px;
+      padding: 40px;
+      box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
     }
-    input:focus,select:focus{outline:none;border-color:#60a5fa; box-shadow:0 0 0 3px #1d4ed80f}
-    button{background:linear-gradient(135deg,#3b82f6,#2563eb);border:none;font-weight:700;cursor:pointer}
-    button[disabled]{opacity:.6;cursor:not-allowed}
-    .row{display:grid;grid-template-columns:1fr auto;gap:10px}
-    .status{margin-top:10px;padding:10px;border-radius:10px;font-weight:600}
-    .status.ok{background:#052e1a;color:#86efac;border:1px solid #14532d}
-    .status.err{background:#3b0d0d;color:#fecaca;border:1px solid #7f1d1d}
-    .status.info{background:#0b1220;color:#cbd5e1;border:1px dashed #334155}
-    .muted{color:var(--mut);font-size:12px;margin-top:6px}
-    .flex{display:flex;gap:10px}
-    .step{display:flex;align-items:center;gap:10px;margin:4px 0 10px}
-    .dot{width:22px;height:22px;border-radius:50%;display:inline-grid;place-items:center;font-size:12px;font-weight:800}
-    .dot.wait{background:#1f2937;color:#9ca3af;border:1px solid #374151}
-    .dot.do{background:#1d4ed8;border:1px solid #2563eb}
-    .dot.done{background:#065f46;border:1px solid #10b981}
-    .pill{margin-left:auto;padding:4px 8px;border-radius:999px;font-size:12px;border:1px solid #334155;color:#cbd5e1}
-    .pill.ok{border-color:#166534;color:#86efac}
-    .pill.err{border-color:#7f1d1d;color:#fecaca}
-    .pill.do{border-color:#1d4ed8;color:#93c5fd}
-    .result{font-size:18px;font-weight:800;margin-top:6px}
-    .hr{height:1px;background:#1f2937;margin:14px 0}
+    
+    h1 {
+      text-align: center;
+      margin-bottom: 10px;
+      color: #2c3e50;
+      font-size: 2.2em;
+      font-weight: 700;
+    }
+    
+    .subtitle {
+      text-align: center;
+      color: #7f8c8d;
+      margin-bottom: 40px;
+      font-size: 1.1em;
+    }
+    
+    .step {
+      margin-bottom: 30px;
+      padding: 25px;
+      border: 2px solid #ecf0f1;
+      border-radius: 15px;
+      background: #fafafa;
+      transition: all 0.3s ease;
+      position: relative;
+    }
+    
+    .step.active {
+      border-color: #3498db;
+      background: #ebf3fd;
+      transform: translateY(-2px);
+      box-shadow: 0 5px 15px rgba(52, 152, 219, 0.2);
+    }
+    
+    .step.completed {
+      border-color: #27ae60;
+      background: #eafaf1;
+    }
+    
+    .step.error {
+      border-color: #e74c3c;
+      background: #fdecea;
+    }
+    
+    .step-header {
+      display: flex;
+      align-items: center;
+      margin-bottom: 15px;
+    }
+    
+    .step-number {
+      width: 35px;
+      height: 35px;
+      border-radius: 50%;
+      background: #bdc3c7;
+      color: white;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin-right: 15px;
+      font-weight: bold;
+      font-size: 16px;
+      transition: all 0.3s ease;
+    }
+    
+    .step.active .step-number {
+      background: #3498db;
+      animation: pulse 2s infinite;
+    }
+    
+    .step.completed .step-number {
+      background: #27ae60;
+    }
+    
+    .step.error .step-number {
+      background: #e74c3c;
+    }
+    
+    .step-title {
+      font-size: 1.3em;
+      font-weight: 600;
+      color: #2c3e50;
+    }
+    
+    .step-description {
+      color: #7f8c8d;
+      margin-bottom: 20px;
+      line-height: 1.5;
+    }
+    
+    label {
+      font-weight: 600;
+      margin-bottom: 8px;
+      display: block;
+      color: #34495e;
+    }
+    
+    input, button, select {
+      width: 100%;
+      padding: 15px;
+      margin-bottom: 15px;
+      border: 2px solid #ecf0f1;
+      border-radius: 10px;
+      font-size: 16px;
+      transition: all 0.3s ease;
+      font-family: inherit;
+    }
+    
+    input:focus, select:focus {
+      border-color: #3498db;
+      outline: none;
+      box-shadow: 0 0 0 3px rgba(52, 152, 219, 0.1);
+    }
+    
+    button {
+      background: linear-gradient(135deg, #3498db, #2980b9);
+      color: white;
+      border: none;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.3s ease;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    
+    button:hover:not(:disabled) {
+      background: linear-gradient(135deg, #2980b9, #1f6391);
+      transform: translateY(-2px);
+      box-shadow: 0 5px 15px rgba(52, 152, 219, 0.3);
+    }
+    
+    button:active {
+      transform: translateY(0);
+    }
+    
+    button:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+      transform: none;
+    }
+    
+    .status {
+      margin-top: 15px;
+      padding: 15px;
+      border-radius: 10px;
+      font-weight: 600;
+      text-align: center;
+      transition: all 0.3s ease;
+      min-height: 50px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    
+    .status.success {
+      background: #d5f4e6;
+      color: #27ae60;
+      border: 2px solid #a9dfbf;
+    }
+    
+    .status.error {
+      background: #fadbd8;
+      color: #c0392b;
+      border: 2px solid #f1948a;
+    }
+    
+    .status.info {
+      background: #d6eaf8;
+      color: #2980b9;
+      border: 2px solid #aed6f1;
+    }
+    
+    .hidden {
+      display: none;
+    }
+    
+    .result-box {
+      background: linear-gradient(135deg, #f8f9fa, #e9ecef);
+      border: 2px solid #27ae60;
+      border-radius: 15px;
+      padding: 25px;
+      text-align: center;
+      margin-top: 20px;
+    }
+    
+    .result-number {
+      font-size: 2.5em;
+      font-weight: bold;
+      color: #27ae60;
+      margin-bottom: 10px;
+    }
+    
+    .result-label {
+      color: #7f8c8d;
+      font-size: 1.1em;
+    }
+    
+    @keyframes pulse {
+      0% { transform: scale(1); }
+      50% { transform: scale(1.05); }
+      100% { transform: scale(1); }
+    }
+    
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(10px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    
+    .fade-in {
+      animation: fadeIn 0.5s ease;
+    }
+    
+    .user-info {
+      background: #e8f5e8;
+      padding: 15px;
+      border-radius: 10px;
+      margin-bottom: 15px;
+      border-left: 4px solid #27ae60;
+    }
+    
+    .connection-status {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-top: 10px;
+    }
+    
+    .status-dot {
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      background: #bdc3c7;
+    }
+    
+    .status-dot.connected {
+      background: #27ae60;
+      animation: pulse 2s infinite;
+    }
+    
+    @media (max-width: 768px) {
+      .container {
+        padding: 25px;
+        margin: 10px;
+      }
+      
+      h1 {
+        font-size: 1.8em;
+      }
+      
+      .step {
+        padding: 20px;
+      }
+      
+      input, button, select {
+        padding: 12px;
+      }
+    }
   </style>
 </head>
 <body>
   <div class="container">
-    <h1>📊 Public Notion Counter</h1>
-    <p class="lead">Notion으로 로그인 → DB 선택 → 속성 합계 계산. 단계별로 진행합니다.</p>
+    <h1>📊 Notion DB 집계</h1>
+    <p class="subtitle">간편하게 Notion 데이터베이스의 숫자를 합계해보세요</p>
 
-    <!-- STEP 1: Proxy & OAuth -->
-    <div class="card" id="step1">
-      <div class="step">
-        <div class="dot wait" id="s1dot">1</div>
-        <div><strong>프록시 & 로그인</strong><div class="muted">프록시 주소 확인 후 Notion 로그인</div></div>
-        <div class="pill" id="s1pill">대기</div>
+    <!-- Step 1: 로그인 -->
+    <div class="step" id="step1">
+      <div class="step-header">
+        <div class="step-number">1</div>
+        <div class="step-title">Notion 로그인</div>
       </div>
-      <label>프록시 URL</label>
-      <div class="row">
-        <input id="proxy" value="https://crimson-salad-9cb7.code0630.workers.dev" />
-        <button id="loginBtn" style="min-width:160px">🔑 Notion으로 로그인</button>
+      <div class="step-description">
+        Notion 계정으로 로그인하여 데이터베이스에 접근 권한을 받아보세요.
       </div>
-      <div id="s1status" class="status info">로그인 후 자동으로 이 페이지로 돌아옵니다.</div>
+      
+      <div id="userInfo" class="user-info hidden">
+        <strong>✅ 로그인됨:</strong> <span id="userName"></span>
+        <div class="connection-status">
+          <div class="status-dot connected"></div>
+          <span>Notion 연결됨</span>
+        </div>
+      </div>
+      
+      <button id="loginBtn">🔐 Notion으로 로그인</button>
+      <button id="logoutBtn" class="hidden" style="background: #e74c3c;">🚪 로그아웃</button>
+      
+      <div class="status" id="loginStatus"></div>
     </div>
 
-    <!-- STEP 2: DB & Props -->
-    <div class="card" id="step2">
-      <div class="step">
-        <div class="dot wait" id="s2dot">2</div>
-        <div><strong>데이터베이스 연결</strong><div class="muted">DB 링크/ID 입력 → 속성 불러오기</div></div>
-        <div class="pill" id="s2pill">대기</div>
+    <!-- Step 2: 데이터베이스 연결 -->
+    <div class="step" id="step2">
+      <div class="step-header">
+        <div class="step-number">2</div>
+        <div class="step-title">데이터베이스 연결</div>
       </div>
-      <label>데이터베이스 링크 또는 ID</label>
-      <input id="dbInput" placeholder="https://www.notion.so/xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx?v=..." />
-      <div class="flex">
-        <button id="loadPropsBtn" disabled>📥 속성 불러오기</button>
-        <select id="propSelect" disabled></select>
+      <div class="step-description">
+        집계하고 싶은 Notion 데이터베이스의 URL 또는 ID를 입력하세요.
       </div>
-      <div id="s2status" class="status info">로그인 완료 후 활성화됩니다.</div>
+      
+      <label for="databaseInput">데이터베이스 URL 또는 ID</label>
+      <input id="databaseInput" placeholder="https://www.notion.so/... 또는 데이터베이스 ID">
+      
+      <button id="connectDbBtn">🔗 데이터베이스 연결</button>
+      
+      <div class="status" id="dbStatus"></div>
     </div>
 
-    <!-- STEP 3: Sum -->
-    <div class="card" id="step3">
-      <div class="step">
-        <div class="dot wait" id="s3dot">3</div>
-        <div><strong>합계 계산</strong><div class="muted">선택한 속성의 합계를 계산합니다.</div></div>
-        <div class="pill" id="s3pill">대기</div>
+    <!-- Step 3: 속성 선택 -->
+    <div class="step" id="step3">
+      <div class="step-header">
+        <div class="step-number">3</div>
+        <div class="step-title">속성 선택</div>
       </div>
-      <div class="flex">
-        <button id="sumBtn" disabled>➕ DB 합계 계산</button>
-        <button id="logoutBtn" class="muted" style="border:1px solid #334155;background:#0b1220;">로그아웃</button>
+      <div class="step-description">
+        합계를 계산할 숫자 속성을 선택하세요.
       </div>
-      <div id="s3status" class="status info">속성을 먼저 선택하세요.</div>
-      <div class="result" id="sumResult"></div>
+      
+      <label for="propSelect">집계할 속성</label>
+      <select id="propSelect">
+        <option value="">속성을 선택하세요</option>
+      </select>
+      
+      <button id="loadPropsBtn">📋 속성 불러오기</button>
+      
+      <div class="status" id="propStatus"></div>
     </div>
 
-    <div class="hr"></div>
-    <p class="muted">Tip: DB가 비어있거나 접근 권한이 없으면 속성이 보이지 않습니다. (Notion에서 해당 DB에 통합을 Add connections로 추가)</p>
+    <!-- Step 4: 합계 계산 -->
+    <div class="step" id="step4">
+      <div class="step-header">
+        <div class="step-number">4</div>
+        <div class="step-title">합계 계산</div>
+      </div>
+      <div class="step-description">
+        선택한 속성의 모든 값을 합계합니다.
+      </div>
+      
+      <button id="calculateBtn">🧮 합계 계산하기</button>
+      
+      <div class="status" id="calculateStatus"></div>
+      
+      <div id="resultBox" class="result-box hidden">
+        <div class="result-number" id="resultNumber">0</div>
+        <div class="result-label" id="resultLabel">총합계</div>
+      </div>
+    </div>
   </div>
-
-  <script defer src="script.js"></script>
 </body>
 </html>
