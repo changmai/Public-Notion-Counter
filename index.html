@@ -267,6 +267,7 @@
       animation: pulse 2s infinite;
     }
     
+    
     @media (max-width: 768px) {
       .container {
         padding: 25px;
@@ -283,6 +284,10 @@
       
       input, button, select {
         padding: 12px;
+      }
+      
+      .connection-guide ol {
+        margin-left: 15px;
       }
     }
   </style>
@@ -323,13 +328,25 @@
         <div class="step-title">데이터베이스 연결</div>
       </div>
       <div class="step-description">
-        집계하고 싶은 Notion 데이터베이스의 URL 또는 ID를 입력하세요.
+        집계하고 싶은 Notion 데이터베이스를 연결하세요.
+        <br><strong>⚠️ 중요:</strong> 데이터베이스에 Integration을 수동으로 연결해야 합니다.
+      </div>
+      
+      <div class="connection-guide" style="background: #fff3cd; border: 1px solid #ffeaa7; border-radius: 8px; padding: 15px; margin: 15px 0;">
+        <strong>📋 연결 방법:</strong>
+        <ol style="margin: 10px 0 0 20px; line-height: 1.6;">
+          <li>Notion에서 집계할 <strong>데이터베이스 페이지</strong>로 이동</li>
+          <li>페이지 우상단의 <strong>"⋯" (더보기)</strong> 버튼 클릭</li>
+          <li><strong>"연결 추가"</strong> 또는 <strong>"Add connections"</strong> 선택</li>
+          <li><strong>"NotionDB-Aggregator"</strong> 또는 생성한 Integration 이름 검색 후 연결</li>
+          <li>아래에 데이터베이스 URL 입력 후 연결 테스트</li>
+        </ol>
       </div>
       
       <label for="databaseInput">데이터베이스 URL 또는 ID</label>
       <input id="databaseInput" placeholder="https://www.notion.so/... 또는 데이터베이스 ID">
       
-      <button id="connectDbBtn">🔗 데이터베이스 연결</button>
+      <button id="connectDbBtn">🔗 데이터베이스 연결 테스트</button>
       
       <div class="status" id="dbStatus"></div>
     </div>
