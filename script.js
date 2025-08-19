@@ -324,7 +324,17 @@ async function connectDatabase() {
     }
   } catch (error) {
     updateStepStatus(2, 'error');
-    setStatus("dbStatus", `❌ ${error.message}`, "error");
+    
+    let errorMessage = error.message;
+    
+    // 권한 관련 에러인 경우 구체적인 안내 제공
+    if (error.message.includes('권한') || error.message.includes('unauthorized') || error.message.includes('403')) {
+      errorMessage = `❌ 데이터베이스 접근 권한이 없습니다.\n\n📋 해결 방법:\n1. Notion에서 해당 데이터베이스 페이지로 이동\n2. 페이지 우상단 "⋯" → "연결 추가" 클릭\n3. "NotionDB-Aggregator" Integration 연결\n4. 다시 시도해주세요`;
+    } else if (error.message.includes('찾을 수 없습니다') || error.message.includes('404')) {
+      errorMessage = `❌ 데이터베이스를 찾을 수 없습니다.\n\n확인사항:\n• URL이 올바른지 확인\n• 데이터베이스가 삭제되지 않았는지 확인\n• 공유 설정이 올바른지 확인`;
+    }
+    
+    setStatus("dbStatus", errorMessage, "error");
   }
 }
 
