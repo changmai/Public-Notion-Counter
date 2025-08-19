@@ -103,12 +103,28 @@ function extractDbId(input) {
   throw new Error("올바른 Notion 데이터베이스 ID가 아닙니다.");
 }
 
-// API 호출 with enhanced error handling
+// 연결 상태 테스트
+async function testConnection() {
+  try {
+    const response = await fetch(`${PROXY_URL}/health`, {
+      method: "GET",
+      credentials: "include"
+    });
+    return response.ok;
+  } catch {
+    return false;
+  }
+}
+
+// API 호출 with enhanced error handling and debugging
 async function callProxy(path, body = {}) {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 30000); // 30초 타임아웃
   
   try {
+    console.log(`🌐 API 호출: ${path}`, body);
+    console.log("🍪 요청 시 쿠키:", document.cookie);
+    
     const response = await fetch(`${PROXY_URL}${path}`, {
       method: "POST",
       headers: { 
@@ -122,16 +138,22 @@ async function callProxy(path, body = {}) {
     
     clearTimeout(timeoutId);
     
+    console.log(`📡 응답 상태: ${response.status}`);
+    
     if (!response.ok) {
       let errorText;
       try {
         const errorData = await response.json();
         errorText = errorData.error || `HTTP ${response.status}`;
+        console.log("❌ 에러 응답:", errorData);
       } catch {
         errorText = await response.text() || `HTTP ${response.status}`;
+        console.log("❌ 텍스트 에러:", errorText);
       }
       
       if (response.status === 401) {
+        console.log("🔐 인증 필요 - 로그인 상태 초기화");
+        isLoggedIn = false;
         throw new Error("로그인이 필요합니다. Notion으로 다시 로그인해주세요.");
       } else if (response.status === 403) {
         throw new Error("접근 권한이 없습니다. CORS 설정이나 데이터베이스 권한을 확인해주세요.");
@@ -145,6 +167,7 @@ async function callProxy(path, body = {}) {
     }
     
     const result = await response.json();
+    console.log("✅ 성공 응답:", result);
     return result;
   } catch (error) {
     clearTimeout(timeoutId);
@@ -200,16 +223,29 @@ function normalizeProps(props) {
   return out;
 }
 
-// 연결 상태 테스트
-async function testConnection() {
-  try {
-    const response = await fetch(`${PROXY_URL}/health`, {
-      method: "GET",
-      credentials: "include"
-    });
-    return response.ok;
-  } catch {
-    return false;
+// 쿠키 확인 헬퍼 함수 추가
+function getCookie(name) {
+  const value = `; ${document.cookie}`;
+  const parts = value.split(`; ${name}=`);
+  if (parts.length === 2) return parts.pop().split(';').shift();
+  return null;
+}
+
+// 세션 디버깅 함수
+function debugSession() {
+  console.log("🍪 현재 쿠키:", document.cookie);
+  console.log("🔑 ntk 세션:", getCookie('ntk'));
+  console.log("📍 현재 URL:", window.location.href);
+}
+
+// 수동으로 로그인 상태 새로고침
+async function refreshLoginStatus() {
+  setStatus("loginStatus", "🔄 로그인 상태 새로고침 중...", "info");
+  debugSession();
+  
+  const success = await checkLoginStatus();
+  if (!success) {
+    setStatus("loginStatus", "❌ 로그인 상태를 확인할 수 없습니다. 페이지를 새로고침하거나 다시 로그인해주세요.", "error");
   }
 }
 
@@ -226,10 +262,14 @@ function displayUserInfo(user) {
   }
 }
 
-// 로그인 상태 확인
+// 로그인 상태 확인 with detailed debugging
 async function checkLoginStatus() {
   try {
+    console.log("🔍 로그인 상태 확인 시작...");
+    
     const response = await callProxy("/me");
+    console.log("✅ /me API 응답:", response);
+    
     if (response.ok && response.me) {
       isLoggedIn = true;
       userInfo = response.me;
@@ -244,13 +284,15 @@ async function checkLoginStatus() {
       setTimeout(() => activateStep(2), 1000);
       
       return true;
+    } else {
+      console.log("❌ 로그인 실패:", response);
+      throw new Error("로그인 정보를 가져올 수 없습니다.");
     }
   } catch (error) {
-    console.log("Not logged in:", error.message);
+    console.log("❌ 로그인 상태 확인 오류:", error.message);
+    isLoggedIn = false;
+    return false;
   }
-  
-  isLoggedIn = false;
-  return false;
 }
 
 // 로그인 처리
@@ -416,10 +458,22 @@ async function calculateSum() {
   }
 }
 
-// 초기화 with connection test
+// 디버그 정보 업데이트
+function updateDebugInfo() {
+  const sessionCookie = getCookie('ntk');
+  $("#sessionDebug").textContent = sessionCookie ? `존재 (${sessionCookie.substring(0, 8)}...)` : "없음";
+  $("#apiDebug").textContent = isLoggedIn ? "로그인됨" : "로그아웃됨";
+}
+
+// 초기화 with enhanced debugging and OAuth callback handling
 document.addEventListener("DOMContentLoaded", async () => {
+  console.log("🚀 웹앱 초기화 시작");
+  
   // 초기 단계 활성화
   activateStep(1);
+  
+  // 디버그 정보 초기화
+  updateDebugInfo();
   
   // 연결 상태 테스트
   setStatus("loginStatus", "🔄 서버 연결 상태 확인 중...", "info");
@@ -430,36 +484,52 @@ document.addEventListener("DOMContentLoaded", async () => {
     return;
   }
   
+  // URL 파라미터 확인 (OAuth 콜백 처리)
+  const urlParams = new URLSearchParams(window.location.search);
+  const hasCode = urlParams.has('code');
+  const hasError = urlParams.has('error');
+  
+  console.log("📍 URL 파라미터:", { hasCode, hasError, url: window.location.href });
+  
+  if (hasError) {
+    const error = urlParams.get('error');
+    setStatus("loginStatus", `❌ OAuth 로그인 오류: ${error}`, "error");
+    window.history.replaceState({}, document.title, window.location.pathname);
+    return;
+  }
+  
+  if (hasCode) {
+    console.log("🔄 OAuth 콜백 감지 - 로그인 처리 중...");
+    setStatus("loginStatus", "🔄 OAuth 로그인 처리 중...", "info");
+    
+    // URL 정리
+    window.history.replaceState({}, document.title, window.location.pathname);
+    
+    // 잠시 대기 후 로그인 상태 확인
+    setTimeout(async () => {
+      console.log("⏱️ OAuth 처리 대기 완료, 로그인 상태 확인 시작");
+      await checkLoginStatus();
+      updateDebugInfo();
+    }, 2000); // 2초 대기
+  } else {
+    // 일반적인 로그인 상태 확인
+    setStatus("loginStatus", "🔄 로그인 상태 확인 중...", "info");
+    const loginSuccess = await checkLoginStatus();
+    updateDebugInfo();
+    
+    if (!loginSuccess) {
+      setStatus("loginStatus", "👋 Notion에 로그인하여 시작해보세요.", "info");
+      $("#refreshBtn").classList.remove("hidden");
+    }
+  }
+  
   // 이벤트 리스너 등록
   $("#loginBtn").addEventListener("click", withLoading($("#loginBtn"), handleLogin));
   $("#logoutBtn").addEventListener("click", withLoading($("#logoutBtn"), handleLogout));
+  $("#refreshBtn").addEventListener("click", withLoading($("#refreshBtn"), refreshLoginStatus));
   $("#connectDbBtn").addEventListener("click", withLoading($("#connectDbBtn"), connectDatabase));
   $("#loadPropsBtn").addEventListener("click", withLoading($("#loadPropsBtn"), loadProperties));
   $("#calculateBtn").addEventListener("click", withLoading($("#calculateBtn"), calculateSum));
   
-  // 로그인 상태 확인
-  setStatus("loginStatus", "🔄 로그인 상태 확인 중...", "info");
-  const loginSuccess = await checkLoginStatus();
-  
-  if (!loginSuccess) {
-    setStatus("loginStatus", "👋 Notion에 로그인하여 시작해보세요.", "info");
-  }
-  
-  // URL 파라미터에서 OAuth 결과 확인
-  const urlParams = new URLSearchParams(window.location.search);
-  if (urlParams.has('code')) {
-    // OAuth 콜백 후 페이지 정리
-    window.history.replaceState({}, document.title, window.location.pathname);
-    setStatus("loginStatus", "🔄 로그인 처리 중...", "info");
-    setTimeout(async () => {
-      await checkLoginStatus();
-    }, 1500);
-  }
-  
-  // 에러 발생 시 상태 확인
-  if (urlParams.has('error')) {
-    const error = urlParams.get('error');
-    setStatus("loginStatus", `❌ 로그인 오류: ${error}`, "error");
-    window.history.replaceState({}, document.title, window.location.pathname);
-  }
+  console.log("✅ 웹앱 초기화 완료");
 });
