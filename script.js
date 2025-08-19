@@ -22,12 +22,22 @@ let isLoggedIn = false;
 let selectedDatabase = null;
 let userInfo = null;
 
-// 자동 복원 기능
+// 자동 복원 기능 with better error handling
 async function autoRestoreConnection() {
+  // 로그인 상태가 확실하지 않으면 시도하지 않음
+  if (!isLoggedIn || !userInfo) {
+    console.log("Auto-restore skipped: not properly logged in");
+    return false;
+  }
+  
   const savedSettings = loadSettings();
-  if (!savedSettings || !isLoggedIn) return false;
+  if (!savedSettings) {
+    console.log("Auto-restore skipped: no saved settings");
+    return false;
+  }
   
   try {
+    console.log("Attempting auto-restore for:", savedSettings.databaseId);
     setStatus("dbStatus", "🔄 이전 연결 정보를 복원하는 중...", "info");
     
     // 저장된 데이터베이스 연결 테스트
@@ -42,28 +52,32 @@ async function autoRestoreConnection() {
       
       // UI 업데이트
       $("#databaseInput").value = savedSettings.databaseId;
-      $("#newDbBtn").classList.remove("hidden"); // 새 데이터베이스 연결 버튼 표시
+      $("#newDbBtn").classList.remove("hidden");
       
       const numericCount = response.numericCount || 0;
       setStatus("dbStatus", 
         `✅ 이전 연결이 복원되었습니다!\n📊 "${selectedDatabase.title}" (집계 가능한 속성: ${numericCount}개)`, 
         "success");
       
-      // 단계 자동 진행
+      // 단계 자동 진행 (약간의 지연)
       setTimeout(() => {
-        activateStep(3);
-        loadProperties(); // 속성도 자동으로 불러오기
-      }, 1500);
+        if (selectedDatabase) { // 상태 재확인
+          activateStep(3);
+          setTimeout(() => loadProperties(), 500); // 속성도 자동으로 불러오기
+        }
+      }, 2000);
       
       return true;
     } else {
       console.log("Saved database connection failed, clearing settings");
       clearSettings();
+      setStatus("dbStatus", "💡 새로운 데이터베이스를 연결해주세요.", "info");
       return false;
     }
   } catch (error) {
     console.log("Auto-restore failed:", error.message);
     clearSettings();
+    setStatus("dbStatus", "💡 데이터베이스를 연결해주세요.", "info");
     return false;
   }
 }
@@ -342,7 +356,7 @@ function displayUserInfo(user) {
   }
 }
 
-// 로그인 상태 확인
+// 로그인 상태 확인 with safe auto-restore
 async function checkLoginStatus() {
   try {
     const response = await callProxy("/me");
@@ -356,7 +370,7 @@ async function checkLoginStatus() {
       
       setStatus("loginStatus", "✅ Notion에 성공적으로 로그인되었습니다.", "success", true);
       
-      // 다음 단계 활성화
+      // 다음 단계 활성화 (자동 복원은 별도로 처리)
       setTimeout(() => activateStep(2), 1000);
       
       return true;
@@ -486,7 +500,7 @@ async function connectDatabase() {
   }
 }
 
-// 속성 불러오기
+// 속성 불러오기 with safety check
 async function loadProperties() {
   try {
     if (!selectedDatabase) {
@@ -495,25 +509,39 @@ async function loadProperties() {
     
     setStatus("propStatus", "🔄 속성을 불러오는 중...", "info");
     
-    const properties = normalizeProps(selectedDatabase.properties);
+    // 이미 속성이 있다면 재사용
+    let properties = selectedDatabase.properties;
+    
+    // 속성이 없거나 빈 객체라면 다시 가져오기
+    if (!properties || Object.keys(properties).length === 0) {
+      const response = await callProxy("/props", { databaseId: selectedDatabase.id });
+      if (response.ok) {
+        properties = response.props || {};
+        selectedDatabase.properties = properties; // 업데이트
+      } else {
+        throw new Error("속성을 불러올 수 없습니다.");
+      }
+    }
+    
+    const normalizedProps = normalizeProps(properties);
     const select = $("#propSelect");
     
     // 옵션 초기화
     select.innerHTML = '<option value="">속성을 선택하세요</option>';
     
-    if (properties.length === 0) {
+    if (normalizedProps.length === 0) {
       throw new Error("집계 가능한 숫자 속성이 없습니다. (number, formula, rollup 타입만 지원)");
     }
     
     // 속성 옵션 추가
-    properties.forEach(prop => {
+    normalizedProps.forEach(prop => {
       const option = document.createElement("option");
       option.value = prop.name;
       option.textContent = prop.displayName;
       select.appendChild(option);
     });
     
-    setStatus("propStatus", `✅ ${properties.length}개의 숫자 속성을 불러왔습니다.`, "success", true);
+    setStatus("propStatus", `✅ ${normalizedProps.length}개의 숫자 속성을 불러왔습니다.`, "success", true);
     
     // 다음 단계 활성화
     setTimeout(() => activateStep(4), 1000);
@@ -597,11 +625,17 @@ document.addEventListener("DOMContentLoaded", async () => {
   if (!loginSuccess) {
     setStatus("loginStatus", "👋 Notion에 로그인하여 시작해보세요.", "info");
   } else {
-    // 로그인 성공 시 자동 복원 시도
-    const restored = await autoRestoreConnection();
-    if (restored) {
-      console.log("Previous connection successfully restored");
-    }
+    // 로그인 성공 시 잠시 후에 자동 복원 시도 (충돌 방지)
+    setTimeout(async () => {
+      try {
+        const restored = await autoRestoreConnection();
+        if (restored) {
+          console.log("Previous connection successfully restored");
+        }
+      } catch (error) {
+        console.error("Auto-restore error:", error);
+      }
+    }, 2000); // 2초 지연으로 안정성 확보
   }
   
   // URL 파라미터에서 OAuth 결과 확인
@@ -610,8 +644,20 @@ document.addEventListener("DOMContentLoaded", async () => {
     // OAuth 콜백 후 페이지 정리
     window.history.replaceState({}, document.title, window.location.pathname);
     setStatus("loginStatus", "🔄 로그인 처리 중...", "info");
+    
+    // OAuth 완료 후 로그인 상태 재확인
     setTimeout(async () => {
-      await checkLoginStatus();
+      const recheck = await checkLoginStatus();
+      if (recheck) {
+        // OAuth 성공 후 자동 복원은 더 늦게 실행
+        setTimeout(async () => {
+          try {
+            await autoRestoreConnection();
+          } catch (error) {
+            console.error("Post-OAuth auto-restore error:", error);
+          }
+        }, 3000);
+      }
     }, 1500);
   }
   
