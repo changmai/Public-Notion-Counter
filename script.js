@@ -1,15 +1,4 @@
-// 연결 상태 테스트
-async function testConnection() {
-  try {
-    const response = await fetch(`${PROXY_URL}/health`, {
-      method: "GET",
-      credentials: "include"
-    });
-    return response.ok;
-  } catch {
-    return false;
-  }
-}// 프록시 URL 하드코딩 - GitHub Pages 주소에 맞게 수정
+// 프록시 URL 하드코딩 - GitHub Pages 주소에 맞게 수정
 const PROXY_URL = 'https://crimson-salad-9cb7.code0630.workers.dev';
 
 // 유틸리티 함수들
@@ -211,75 +200,16 @@ function normalizeProps(props) {
   return out;
 }
 
-// 디버그 함수
-async function debugDatabaseConnection() {
+// 연결 상태 테스트
+async function testConnection() {
   try {
-    const inputValue = $("#databaseInput").value.trim();
-    
-    setStatus("dbStatus", "🔍 연결 상태를 확인하는 중...", "info");
-    
-    console.log("=== DEBUG INFO ===");
-    console.log("1. Input value:", inputValue);
-    
-    if (!inputValue) {
-      setStatus("dbStatus", "❌ 먼저 데이터베이스 URL 또는 ID를 입력해주세요.", "error");
-      return;
-    }
-    
-    // ID 추출 테스트
-    let databaseId;
-    try {
-      databaseId = extractDbId(inputValue);
-      console.log("2. Extracted ID:", databaseId);
-    } catch (e) {
-      setStatus("dbStatus", `❌ ID 추출 실패: ${e.message}`, "error");
-      return;
-    }
-    
-    // 로그인 상태 확인
-    console.log("3. Login status:", isLoggedIn);
-    if (!isLoggedIn) {
-      setStatus("dbStatus", "❌ 로그인 상태가 아닙니다.", "error");
-      return;
-    }
-    
-    // 사용자 정보 확인
-    console.log("4. User info:", userInfo);
-    
-    // API 연결 테스트
-    try {
-      const response = await callProxy("/me");
-      console.log("5. User API response:", response);
-    } catch (e) {
-      console.log("5. User API error:", e);
-    }
-    
-    // 데이터베이스 접근 테스트
-    try {
-      const dbResponse = await callProxy("/props", { databaseId });
-      console.log("6. Database API response:", dbResponse);
-      
-      if (dbResponse.ok) {
-        setStatus("dbStatus", 
-          `✅ 디버그 성공!\n• 데이터베이스 ID: ${databaseId}\n• 제목: ${dbResponse.title || 'N/A'}\n• 전체 속성: ${Object.keys(dbResponse.allProps || {}).length}개\n• 집계 가능 속성: ${dbResponse.numericCount || 0}개`, 
-          "success");
-      } else {
-        setStatus("dbStatus", 
-          `❌ 데이터베이스 접근 실패\n• 에러: ${dbResponse.error}\n• 데이터베이스 ID: ${databaseId}`, 
-          "error");
-      }
-    } catch (e) {
-      console.log("6. Database API error:", e);
-      setStatus("dbStatus", 
-        `❌ API 호출 실패\n• 에러: ${e.message}\n• 데이터베이스 ID: ${databaseId}`, 
-        "error");
-    }
-    
-    console.log("=== END DEBUG ===");
-    
-  } catch (error) {
-    console.error("Debug error:", error);
-    setStatus("dbStatus", `❌ 디버그 중 오류: ${error.message}`, "error");
+    const response = await fetch(`${PROXY_URL}/health`, {
+      method: "GET",
+      credentials: "include"
+    });
+    return response.ok;
+  } catch {
+    return false;
   }
 }
 
@@ -365,69 +295,43 @@ async function handleLogout() {
   }
 }
 
-// 데이터베이스 연결 with detailed debugging
+// 데이터베이스 연결
 async function connectDatabase() {
   try {
     if (!isLoggedIn) {
       throw new Error("먼저 Notion에 로그인해주세요.");
     }
     
-    const inputValue = $("#databaseInput").value.trim();
-    if (!inputValue) {
-      throw new Error("데이터베이스 URL 또는 ID를 입력해주세요.");
-    }
-    
-    console.log("Original input:", inputValue);
-    const databaseId = extractDbId(inputValue);
-    console.log("Extracted database ID:", databaseId);
+    const databaseId = extractDbId($("#databaseInput").value);
     
     setStatus("dbStatus", "🔄 데이터베이스 연결 중...", "info");
     
     // 데이터베이스 접근 테스트
     const response = await callProxy("/props", { databaseId });
-    console.log("Database response:", response);
     
     if (response.ok) {
-      const properties = response.props || {};
-      const numericCount = response.numericCount || 0;
-      
       selectedDatabase = {
         id: databaseId,
-        properties: properties,
-        title: response.title || "Unknown Database"
+        properties: response.props
       };
       
-      console.log("Selected database:", selectedDatabase);
-      
-      if (numericCount === 0) {
-        setStatus("dbStatus", 
-          `⚠️ 연결되었지만 집계 가능한 숫자 속성이 없습니다.\n\n데이터베이스에 number, formula, rollup 타입의 속성을 추가해주세요.`, 
-          "error");
-        return;
-      }
-      
-      setStatus("dbStatus", 
-        `✅ 데이터베이스 "${selectedDatabase.title}"가 성공적으로 연결되었습니다.\n📊 집계 가능한 속성: ${numericCount}개`, 
-        "success", true);
+      setStatus("dbStatus", "✅ 데이터베이스가 성공적으로 연결되었습니다.", "success", true);
       
       // 다음 단계 활성화
       setTimeout(() => activateStep(3), 1000);
     } else {
-      throw new Error(response.error || "데이터베이스 연결에 실패했습니다.");
+      throw new Error("데이터베이스 연결에 실패했습니다.");
     }
   } catch (error) {
-    console.error("Database connection error:", error);
     updateStepStatus(2, 'error');
     
     let errorMessage = error.message;
     
     // 권한 관련 에러인 경우 구체적인 안내 제공
     if (error.message.includes('권한') || error.message.includes('unauthorized') || error.message.includes('403')) {
-      errorMessage = `❌ 데이터베이스 접근 권한이 없습니다.\n\n📋 해결 방법:\n1. Notion에서 해당 데이터베이스 페이지로 이동\n2. 페이지 우상단 "⋯" → "연결 추가" 클릭\n3. "Public-Counter" Integration 연결\n4. 다시 시도해주세요`;
-    } else if (error.message.includes('찾을 수 없습니다') || error.message.includes('404') || error.message.includes('object_not_found')) {
-      errorMessage = `❌ 데이터베이스를 찾을 수 없습니다.\n\n확인사항:\n• URL이 데이터베이스 페이지인지 확인 (일반 페이지 아님)\n• URL에서 "?v=" 부분 제거 후 시도\n• 데이터베이스가 삭제되지 않았는지 확인`;
-    } else if (error.message.includes('올바른 Notion')) {
-      errorMessage = `❌ ${error.message}\n\n💡 올바른 형식:\n• https://notion.so/your-db-id\n• 32자리 영문숫자 조합`;
+      errorMessage = `❌ 데이터베이스 접근 권한이 없습니다.\n\n📋 해결 방법:\n1. Notion에서 해당 데이터베이스 페이지로 이동\n2. 페이지 우상단 "⋯" → "연결 추가" 클릭\n3. "NotionDB-Aggregator" Integration 연결\n4. 다시 시도해주세요`;
+    } else if (error.message.includes('찾을 수 없습니다') || error.message.includes('404')) {
+      errorMessage = `❌ 데이터베이스를 찾을 수 없습니다.\n\n확인사항:\n• URL이 올바른지 확인\n• 데이터베이스가 삭제되지 않았는지 확인\n• 공유 설정이 올바른지 확인`;
     }
     
     setStatus("dbStatus", errorMessage, "error");
@@ -530,7 +434,6 @@ document.addEventListener("DOMContentLoaded", async () => {
   $("#loginBtn").addEventListener("click", withLoading($("#loginBtn"), handleLogin));
   $("#logoutBtn").addEventListener("click", withLoading($("#logoutBtn"), handleLogout));
   $("#connectDbBtn").addEventListener("click", withLoading($("#connectDbBtn"), connectDatabase));
-  $("#debugBtn").addEventListener("click", withLoading($("#debugBtn"), debugDatabaseConnection));
   $("#loadPropsBtn").addEventListener("click", withLoading($("#loadPropsBtn"), loadProperties));
   $("#calculateBtn").addEventListener("click", withLoading($("#calculateBtn"), calculateSum));
   
