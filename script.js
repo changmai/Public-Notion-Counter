@@ -22,6 +22,52 @@ let isLoggedIn = false;
 let selectedDatabase = null;
 let userInfo = null;
 
+// 자동 복원 기능
+async function autoRestoreConnection() {
+  const savedSettings = loadSettings();
+  if (!savedSettings || !isLoggedIn) return false;
+  
+  try {
+    setStatus("dbStatus", "🔄 이전 연결 정보를 복원하는 중...", "info");
+    
+    // 저장된 데이터베이스 연결 테스트
+    const response = await callProxy("/props", { databaseId: savedSettings.databaseId });
+    
+    if (response.ok) {
+      selectedDatabase = {
+        id: savedSettings.databaseId,
+        properties: response.props,
+        title: response.title || savedSettings.databaseTitle
+      };
+      
+      // UI 업데이트
+      $("#databaseInput").value = savedSettings.databaseId;
+      $("#newDbBtn").classList.remove("hidden"); // 새 데이터베이스 연결 버튼 표시
+      
+      const numericCount = response.numericCount || 0;
+      setStatus("dbStatus", 
+        `✅ 이전 연결이 복원되었습니다!\n📊 "${selectedDatabase.title}" (집계 가능한 속성: ${numericCount}개)`, 
+        "success");
+      
+      // 단계 자동 진행
+      setTimeout(() => {
+        activateStep(3);
+        loadProperties(); // 속성도 자동으로 불러오기
+      }, 1500);
+      
+      return true;
+    } else {
+      console.log("Saved database connection failed, clearing settings");
+      clearSettings();
+      return false;
+    }
+  } catch (error) {
+    console.log("Auto-restore failed:", error.message);
+    clearSettings();
+    return false;
+  }
+}
+
 // 숫자 포맷팅
 function formatNumber(num) {
   return new Intl.NumberFormat('ko-KR').format(num);
@@ -344,6 +390,9 @@ async function handleLogout() {
     userInfo = null;
     selectedDatabase = null;
     
+    // 저장된 설정도 제거
+    clearSettings();
+    
     $("#userInfo").classList.add("hidden");
     $("#loginBtn").classList.remove("hidden");
     $("#logoutBtn").classList.add("hidden");
@@ -409,6 +458,9 @@ async function connectDatabase() {
       setStatus("dbStatus", 
         `✅ 데이터베이스 "${selectedDatabase.title}"가 성공적으로 연결되었습니다.\n📊 집계 가능한 속성: ${numericCount}개`, 
         "success", true);
+      
+      // 설정 저장
+      saveSettings();
       
       // 다음 단계 활성화
       setTimeout(() => activateStep(3), 1000);
@@ -506,6 +558,9 @@ async function calculateSum() {
     setStatus("calculateStatus", `🎉 계산 완료! 총 ${formatNumber(count)}개 항목의 합계: ${formatNumber(total)}`, "success");
     updateStepStatus(4, 'completed');
     
+    // 성공적인 계산 후 설정 업데이트 (마지막 사용 시간)
+    saveSettings();
+    
   } catch (error) {
     updateStepStatus(4, 'error');
     setStatus("calculateStatus", `❌ ${error.message}`, "error");
@@ -531,6 +586,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   $("#logoutBtn").addEventListener("click", withLoading($("#logoutBtn"), handleLogout));
   $("#connectDbBtn").addEventListener("click", withLoading($("#connectDbBtn"), connectDatabase));
   $("#debugBtn").addEventListener("click", withLoading($("#debugBtn"), debugDatabaseConnection));
+  $("#newDbBtn").addEventListener("click", connectNewDatabase);
   $("#loadPropsBtn").addEventListener("click", withLoading($("#loadPropsBtn"), loadProperties));
   $("#calculateBtn").addEventListener("click", withLoading($("#calculateBtn"), calculateSum));
   
@@ -540,6 +596,12 @@ document.addEventListener("DOMContentLoaded", async () => {
   
   if (!loginSuccess) {
     setStatus("loginStatus", "👋 Notion에 로그인하여 시작해보세요.", "info");
+  } else {
+    // 로그인 성공 시 자동 복원 시도
+    const restored = await autoRestoreConnection();
+    if (restored) {
+      console.log("Previous connection successfully restored");
+    }
   }
   
   // URL 파라미터에서 OAuth 결과 확인
