@@ -1,4 +1,4 @@
-// 프록시 URL 하드코딩
+// 프록시 URL 하드코딩 - GitHub Pages 주소에 맞게 수정
 const PROXY_URL = 'https://crimson-salad-9cb7.code0630.workers.dev';
 
 // 유틸리티 함수들
@@ -103,32 +103,57 @@ function extractDbId(input) {
   throw new Error("올바른 Notion 데이터베이스 ID가 아닙니다.");
 }
 
-// API 호출
+// API 호출 with enhanced error handling
 async function callProxy(path, body = {}) {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 30000); // 30초 타임아웃
+  
   try {
     const response = await fetch(`${PROXY_URL}${path}`, {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: { 
+        "content-type": "application/json",
+        "Accept": "application/json"
+      },
       credentials: "include",
-      body: JSON.stringify(body)
+      body: JSON.stringify(body),
+      signal: controller.signal
     });
     
+    clearTimeout(timeoutId);
+    
     if (!response.ok) {
-      const errorText = await response.text();
+      let errorText;
+      try {
+        const errorData = await response.json();
+        errorText = errorData.error || `HTTP ${response.status}`;
+      } catch {
+        errorText = await response.text() || `HTTP ${response.status}`;
+      }
       
       if (response.status === 401) {
         throw new Error("로그인이 필요합니다. Notion으로 다시 로그인해주세요.");
       } else if (response.status === 403) {
-        throw new Error("데이터베이스 접근 권한이 없습니다. 데이터베이스를 공유하거나 권한을 확인해주세요.");
+        throw new Error("접근 권한이 없습니다. CORS 설정이나 데이터베이스 권한을 확인해주세요.");
+      } else if (response.status === 404) {
+        throw new Error("요청한 리소스를 찾을 수 없습니다.");
+      } else if (response.status >= 500) {
+        throw new Error("서버 오류가 발생했습니다. 잠시 후 다시 시도해주세요.");
       } else {
-        throw new Error(`서버 오류(${response.status}): ${errorText}`);
+        throw new Error(errorText);
       }
     }
     
-    return await response.json();
+    const result = await response.json();
+    return result;
   } catch (error) {
+    clearTimeout(timeoutId);
+    
+    if (error.name === 'AbortError') {
+      throw new Error("요청 시간이 초과되었습니다. 네트워크 상태를 확인하고 다시 시도해주세요.");
+    }
     if (error.name === 'TypeError' && error.message.includes('fetch')) {
-      throw new Error("네트워크 연결을 확인해주세요.");
+      throw new Error("네트워크 연결을 확인해주세요. 인터넷 연결이 불안정할 수 있습니다.");
     }
     throw error;
   }
@@ -155,7 +180,7 @@ function withLoading(btn, fn) {
   };
 }
 
-// 속성 정규화 (숫자 타입만)
+// 속성 정규화 (숫자 타입만) - 서버에서 이미 필터링됨
 function normalizeProps(props) {
   const out = [];
   const numericTypes = ['number', 'formula', 'rollup'];
@@ -173,6 +198,19 @@ function normalizeProps(props) {
   }
   
   return out;
+}
+
+// 연결 상태 테스트
+async function testConnection() {
+  try {
+    const response = await fetch(`${PROXY_URL}/health`, {
+      method: "GET",
+      credentials: "include"
+    });
+    return response.ok;
+  } catch {
+    return false;
+  }
 }
 
 // 사용자 정보 표시
@@ -368,10 +406,19 @@ async function calculateSum() {
   }
 }
 
-// 초기화
+// 초기화 with connection test
 document.addEventListener("DOMContentLoaded", async () => {
   // 초기 단계 활성화
   activateStep(1);
+  
+  // 연결 상태 테스트
+  setStatus("loginStatus", "🔄 서버 연결 상태 확인 중...", "info");
+  const isConnected = await testConnection();
+  
+  if (!isConnected) {
+    setStatus("loginStatus", "❌ 서버에 연결할 수 없습니다. 네트워크 상태를 확인해주세요.", "error");
+    return;
+  }
   
   // 이벤트 리스너 등록
   $("#loginBtn").addEventListener("click", withLoading($("#loginBtn"), handleLogin));
@@ -390,9 +437,19 @@ document.addEventListener("DOMContentLoaded", async () => {
   
   // URL 파라미터에서 OAuth 결과 확인
   const urlParams = new URLSearchParams(window.location.search);
-  if (urlParams.get('code')) {
-    // OAuth 콜백 후 페이지 새로고침
+  if (urlParams.has('code')) {
+    // OAuth 콜백 후 페이지 정리
     window.history.replaceState({}, document.title, window.location.pathname);
-    setTimeout(() => location.reload(), 1000);
+    setStatus("loginStatus", "🔄 로그인 처리 중...", "info");
+    setTimeout(async () => {
+      await checkLoginStatus();
+    }, 1500);
+  }
+  
+  // 에러 발생 시 상태 확인
+  if (urlParams.has('error')) {
+    const error = urlParams.get('error');
+    setStatus("loginStatus", `❌ 로그인 오류: ${error}`, "error");
+    window.history.replaceState({}, document.title, window.location.pathname);
   }
 });
