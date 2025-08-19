@@ -1,219 +1,398 @@
-// ===== Helpers =====
-const $ = (s) => document.querySelector(s);
-const DEFAULT_PROXY = "https://crimson-salad-9cb7.code0630.workers.dev";
+// 프록시 URL 하드코딩
+const PROXY_URL = 'https://crimson-salad-9cb7.code0630.workers.dev';
 
-function setStep(elDot, elPill, state, text) {
-  const map = {
-    wait: { cls: "wait", pill: "대기" },
-    do:   { cls: "do",   pill: "진행중" },
-    ok:   { cls: "done", pill: "완료" },
-    err:  { cls: "wait", pill: "오류" },
-  };
-  const m = map[state] || map.wait;
-  elDot.className = `dot ${m.cls}`;
-  elPill.className = `pill ${state==="ok"?"ok":state==="do"?"do":state==="err"?"err":""}`;
-  elPill.textContent = text || m.pill;
+// 유틸리티 함수들
+const $ = (sel) => document.querySelector(sel);
+const $$ = (sel) => document.querySelectorAll(sel);
+
+// 상태 관리
+let currentStep = 1;
+let isLoggedIn = false;
+let selectedDatabase = null;
+let userInfo = null;
+
+// 숫자 포맷팅
+function formatNumber(num) {
+  return new Intl.NumberFormat('ko-KR').format(num);
 }
 
-function setStatus(el, type, msg) {
-  el.className = `status ${type}`;
+// 상태 메시지 표시
+function setStatus(elementId, msg, type = "", autoClear = false) {
+  const el = $(elementId);
+  if (!el) return;
+  
   el.textContent = msg;
+  el.className = `status ${type}`;
+  
+  // 애니메이션 효과
+  el.style.animation = "none";
+  el.offsetHeight; // reflow 강제
+  el.style.animation = "fadeIn 0.5s ease";
+  
+  // 자동 클리어
+  if (autoClear && type === "success") {
+    setTimeout(() => {
+      el.textContent = "";
+      el.className = "status";
+    }, 3000);
+  }
 }
 
+// 단계 상태 업데이트
+function updateStepStatus(stepNum, status) {
+  const step = $(`#step${stepNum}`);
+  if (!step) return;
+  
+  // 모든 상태 클래스 제거
+  step.classList.remove('active', 'completed', 'error');
+  
+  // 새 상태 적용
+  if (status) {
+    step.classList.add(status);
+  }
+  
+  // 활성 단계 애니메이션
+  if (status === 'active') {
+    step.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
+}
+
+// 다음 단계 활성화
+function activateStep(stepNum) {
+  currentStep = stepNum;
+  
+  // 모든 단계 비활성화
+  for (let i = 1; i <= 4; i++) {
+    updateStepStatus(i, '');
+  }
+  
+  // 완료된 단계들 표시
+  for (let i = 1; i < stepNum; i++) {
+    updateStepStatus(i, 'completed');
+  }
+  
+  // 현재 단계 활성화
+  updateStepStatus(stepNum, 'active');
+}
+
+// DB ID 추출 및 검증
 function extractDbId(input) {
-  if (!input) return "";
+  if (!input) throw new Error("데이터베이스 URL 또는 ID를 입력해주세요.");
+  
   const s = String(input).trim();
+  
+  // URL인 경우
   if (/^https?:\/\//i.test(s)) {
     try {
       const u = new URL(s);
-      let core = u.pathname.split("/").pop() || "";
-      const m32 = core.replace(/[^0-9a-f]/gi, "").match(/[0-9a-f]{32}/i);
-      if (m32) return m32[0];
-      return core;
-    } catch {}
+      if (u.hostname.endsWith("notion.so")) {
+        let path = u.pathname.split("/").pop() || "";
+        const hex = path.replace(/[^0-9a-f]/gi, "");
+        if (hex.length >= 32) return hex.slice(0, 32).toLowerCase();
+        throw new Error("올바른 Notion 데이터베이스 URL이 아닙니다.");
+      }
+    } catch (e) {
+      throw new Error("올바른 URL 형식이 아닙니다.");
+    }
   }
+  
+  // 직접 ID인 경우
   const m = s.match(/[0-9a-f]{32}/i);
-  return m ? m[0] : s;
+  if (m) return m[0].toLowerCase();
+  
+  throw new Error("올바른 Notion 데이터베이스 ID가 아닙니다.");
 }
 
-function saveCfg(obj) { localStorage.setItem("notionPublicCfg", JSON.stringify(obj)); }
-function loadCfg() { try { return JSON.parse(localStorage.getItem("notionPublicCfg")||"{}"); } catch { return {}; } }
-
-async function api(path, body) {
-  const proxy = ($("#proxy").value || DEFAULT_PROXY).replace(/\/+$/,"");
-  const res = await fetch(proxy + path, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    credentials: "include", // 중요: 쿠키(ntk) 포함
-    body: JSON.stringify(body || {})
-  });
-  if (!res.ok) {
-    const t = await res.text();
-    throw new Error(`프록시 오류(${res.status}): ${t}`);
+// API 호출
+async function callProxy(path, body = {}) {
+  try {
+    const response = await fetch(`${PROXY_URL}${path}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify(body)
+    });
+    
+    if (!response.ok) {
+      const errorText = await response.text();
+      
+      if (response.status === 401) {
+        throw new Error("로그인이 필요합니다. Notion으로 다시 로그인해주세요.");
+      } else if (response.status === 403) {
+        throw new Error("데이터베이스 접근 권한이 없습니다. 데이터베이스를 공유하거나 권한을 확인해주세요.");
+      } else {
+        throw new Error(`서버 오류(${response.status}): ${errorText}`);
+      }
+    }
+    
+    return await response.json();
+  } catch (error) {
+    if (error.name === 'TypeError' && error.message.includes('fetch')) {
+      throw new Error("네트워크 연결을 확인해주세요.");
+    }
+    throw error;
   }
-  return res.json();
 }
 
+// 로딩 상태 관리
+function withLoading(btn, fn) {
+  return async () => {
+    const prevText = btn.textContent;
+    const prevDisabled = btn.disabled;
+    
+    btn.disabled = true;
+    btn.textContent = "⏳ 처리 중...";
+    
+    try {
+      await fn();
+    } catch (error) {
+      console.error("Error:", error);
+      throw error;
+    } finally {
+      btn.disabled = prevDisabled;
+      btn.textContent = prevText;
+    }
+  };
+}
+
+// 속성 정규화 (숫자 타입만)
 function normalizeProps(props) {
   const out = [];
-  if (!props) return out;
-  if (Array.isArray(props)) {
-    for (const it of props) {
-      if (typeof it === "string") out.push({ name: it, type: "prop" });
-      else if (it && typeof it === "object") out.push({ name: it.name, type: it.type || "prop" });
+  const numericTypes = ['number', 'formula', 'rollup'];
+  
+  if (!props || typeof props !== 'object') return out;
+  
+  for (const [name, def] of Object.entries(props)) {
+    if (def && numericTypes.includes(def.type)) {
+      out.push({ 
+        name, 
+        type: def.type,
+        displayName: `${name} (${def.type})`
+      });
     }
-  } else if (typeof props === "object") {
-    for (const [name, def] of Object.entries(props)) out.push({ name, type: def?.type || "prop" });
   }
+  
   return out;
 }
 
-// ===== State refs =====
-const s1 = { dot: $("#s1dot"), pill: $("#s1pill"), status: $("#s1status") };
-const s2 = { dot: $("#s2dot"), pill: $("#s2pill"), status: $("#s2status"), propSelect: $("#propSelect") };
-const s3 = { dot: $("#s3dot"), pill: $("#s3pill"), status: $("#s3status") };
+// 사용자 정보 표시
+function displayUserInfo(user) {
+  if (!user) return;
+  
+  const userInfoEl = $("#userInfo");
+  const userNameEl = $("#userName");
+  
+  if (user.name) {
+    userNameEl.textContent = user.name;
+    userInfoEl.classList.remove("hidden");
+  }
+}
 
-// ===== Setup =====
+// 로그인 상태 확인
+async function checkLoginStatus() {
+  try {
+    const response = await callProxy("/me");
+    if (response.ok && response.me) {
+      isLoggedIn = true;
+      userInfo = response.me;
+      displayUserInfo(userInfo);
+      
+      $("#loginBtn").classList.add("hidden");
+      $("#logoutBtn").classList.remove("hidden");
+      
+      setStatus("loginStatus", "✅ Notion에 성공적으로 로그인되었습니다.", "success", true);
+      
+      // 다음 단계 활성화
+      setTimeout(() => activateStep(2), 1000);
+      
+      return true;
+    }
+  } catch (error) {
+    console.log("Not logged in:", error.message);
+  }
+  
+  isLoggedIn = false;
+  return false;
+}
+
+// 로그인 처리
+async function handleLogin() {
+  try {
+    setStatus("loginStatus", "🔄 Notion 로그인 페이지로 이동 중...", "info");
+    
+    const loginUrl = `${PROXY_URL}/oauth/login?redirect=${encodeURIComponent(location.href)}`;
+    location.href = loginUrl;
+  } catch (error) {
+    setStatus("loginStatus", `❌ 로그인 오류: ${error.message}`, "error");
+  }
+}
+
+// 로그아웃 처리
+async function handleLogout() {
+  try {
+    await callProxy("/oauth/logout");
+    
+    isLoggedIn = false;
+    userInfo = null;
+    selectedDatabase = null;
+    
+    $("#userInfo").classList.add("hidden");
+    $("#loginBtn").classList.remove("hidden");
+    $("#logoutBtn").classList.add("hidden");
+    
+    // 폼 초기화
+    $("#databaseInput").value = "";
+    $("#propSelect").innerHTML = '<option value="">속성을 선택하세요</option>';
+    $("#resultBox").classList.add("hidden");
+    
+    // 모든 상태 메시지 클리어
+    ["loginStatus", "dbStatus", "propStatus", "calculateStatus"].forEach(id => {
+      setStatus(id, "", "");
+    });
+    
+    setStatus("loginStatus", "👋 로그아웃되었습니다.", "info", true);
+    activateStep(1);
+  } catch (error) {
+    setStatus("loginStatus", `❌ 로그아웃 오류: ${error.message}`, "error");
+  }
+}
+
+// 데이터베이스 연결
+async function connectDatabase() {
+  try {
+    if (!isLoggedIn) {
+      throw new Error("먼저 Notion에 로그인해주세요.");
+    }
+    
+    const databaseId = extractDbId($("#databaseInput").value);
+    
+    setStatus("dbStatus", "🔄 데이터베이스 연결 중...", "info");
+    
+    // 데이터베이스 접근 테스트
+    const response = await callProxy("/props", { databaseId });
+    
+    if (response.ok) {
+      selectedDatabase = {
+        id: databaseId,
+        properties: response.props
+      };
+      
+      setStatus("dbStatus", "✅ 데이터베이스가 성공적으로 연결되었습니다.", "success", true);
+      
+      // 다음 단계 활성화
+      setTimeout(() => activateStep(3), 1000);
+    } else {
+      throw new Error("데이터베이스 연결에 실패했습니다.");
+    }
+  } catch (error) {
+    updateStepStatus(2, 'error');
+    setStatus("dbStatus", `❌ ${error.message}`, "error");
+  }
+}
+
+// 속성 불러오기
+async function loadProperties() {
+  try {
+    if (!selectedDatabase) {
+      throw new Error("먼저 데이터베이스를 연결해주세요.");
+    }
+    
+    setStatus("propStatus", "🔄 속성을 불러오는 중...", "info");
+    
+    const properties = normalizeProps(selectedDatabase.properties);
+    const select = $("#propSelect");
+    
+    // 옵션 초기화
+    select.innerHTML = '<option value="">속성을 선택하세요</option>';
+    
+    if (properties.length === 0) {
+      throw new Error("집계 가능한 숫자 속성이 없습니다. (number, formula, rollup 타입만 지원)");
+    }
+    
+    // 속성 옵션 추가
+    properties.forEach(prop => {
+      const option = document.createElement("option");
+      option.value = prop.name;
+      option.textContent = prop.displayName;
+      select.appendChild(option);
+    });
+    
+    setStatus("propStatus", `✅ ${properties.length}개의 숫자 속성을 불러왔습니다.`, "success", true);
+    
+    // 다음 단계 활성화
+    setTimeout(() => activateStep(4), 1000);
+  } catch (error) {
+    updateStepStatus(3, 'error');
+    setStatus("propStatus", `❌ ${error.message}`, "error");
+  }
+}
+
+// 합계 계산
+async function calculateSum() {
+  try {
+    if (!selectedDatabase) {
+      throw new Error("먼저 데이터베이스를 연결해주세요.");
+    }
+    
+    const prop = $("#propSelect").value;
+    if (!prop) {
+      throw new Error("집계할 속성을 선택해주세요.");
+    }
+    
+    setStatus("calculateStatus", "🔄 데이터를 분석하고 합계를 계산 중...", "info");
+    
+    const response = await callProxy("/sum", { 
+      databaseId: selectedDatabase.id, 
+      prop 
+    });
+    
+    if (!response.ok) {
+      throw new Error("합계 계산에 실패했습니다.");
+    }
+    
+    const total = response.total || response.sum || 0;
+    const count = response.count || 0;
+    
+    // 결과 표시
+    $("#resultNumber").textContent = formatNumber(total);
+    $("#resultLabel").textContent = `총 ${formatNumber(count)}개 항목의 합계`;
+    $("#resultBox").classList.remove("hidden");
+    $("#resultBox").classList.add("fade-in");
+    
+    setStatus("calculateStatus", `🎉 계산 완료! 총 ${formatNumber(count)}개 항목의 합계: ${formatNumber(total)}`, "success");
+    updateStepStatus(4, 'completed');
+    
+  } catch (error) {
+    updateStepStatus(4, 'error');
+    setStatus("calculateStatus", `❌ ${error.message}`, "error");
+  }
+}
+
+// 초기화
 document.addEventListener("DOMContentLoaded", async () => {
-  // Prefill proxy
-  const saved = loadCfg();
-  $("#proxy").value = saved.proxy || DEFAULT_PROXY;
-  if (saved.db) $("#dbInput").value = saved.db;
-
-  // Step 1: try session check
-  await checkSession();
-
-  // Events
-  $("#loginBtn").addEventListener("click", onLogin);
-  $("#loadPropsBtn").addEventListener("click", onLoadProps);
-  $("#sumBtn").addEventListener("click", onSum);
-  $("#logoutBtn").addEventListener("click", onLogout);
-  $("#propSelect").addEventListener("change", () => {
-    if ($("#propSelect").value) {
-      $("#sumBtn").disabled = false;
-      setStatus(s3.status, "info", "선택한 속성으로 합계를 계산할 수 있습니다.");
-      setStep(s3.dot, s3.pill, "wait", "대기");
-    }
-  });
+  // 초기 단계 활성화
+  activateStep(1);
+  
+  // 이벤트 리스너 등록
+  $("#loginBtn").addEventListener("click", withLoading($("#loginBtn"), handleLogin));
+  $("#logoutBtn").addEventListener("click", withLoading($("#logoutBtn"), handleLogout));
+  $("#connectDbBtn").addEventListener("click", withLoading($("#connectDbBtn"), connectDatabase));
+  $("#loadPropsBtn").addEventListener("click", withLoading($("#loadPropsBtn"), loadProperties));
+  $("#calculateBtn").addEventListener("click", withLoading($("#calculateBtn"), calculateSum));
+  
+  // 로그인 상태 확인
+  setStatus("loginStatus", "🔄 로그인 상태 확인 중...", "info");
+  const loginSuccess = await checkLoginStatus();
+  
+  if (!loginSuccess) {
+    setStatus("loginStatus", "👋 Notion에 로그인하여 시작해보세요.", "info");
+  }
+  
+  // URL 파라미터에서 OAuth 결과 확인
+  const urlParams = new URLSearchParams(window.location.search);
+  if (urlParams.get('code')) {
+    // OAuth 콜백 후 페이지 새로고침
+    window.history.replaceState({}, document.title, window.location.pathname);
+    setTimeout(() => location.reload(), 1000);
+  }
 });
-
-async function checkSession() {
-  setStep(s1.dot, s1.pill, "do", "연결 확인중");
-  try {
-    const { ok, me, error } = await api("/me", {});
-    if (!ok) throw new Error(error || "세션 없음");
-    const name = me?.bot?.owner?.user?.name || me?.name || me?.owner?.type || "Notion";
-    setStep(s1.dot, s1.pill, "ok", "연결됨");
-    setStatus(s1.status, "ok", `✅ 연결 성공: ${name} (워크스페이스 접근 가능)`);
-    // enable step 2
-    $("#loadPropsBtn").disabled = false;
-    $("#dbInput").disabled = false;
-    setStatus(s2.status, "info", "DB 링크/ID를 입력하고 '속성 불러오기'를 눌러주세요.");
-  } catch (e) {
-    setStep(s1.dot, s1.pill, "wait", "대기");
-    setStatus(s1.status, "info", "아직 로그인되지 않았습니다. 'Notion으로 로그인'을 눌러 진행하세요.");
-    $("#loadPropsBtn").disabled = true;
-    $("#dbInput").disabled = false; // 로그인 전에 입력해도 됨
-  }
-}
-
-function onLogin() {
-  const proxy = ($("#proxy").value || DEFAULT_PROXY).replace(/\/+$/,"");
-  const back = location.href;
-  location.href = `${proxy}/oauth/login?redirect=${encodeURIComponent(back)}`;
-}
-
-async function onLoadProps() {
-  const raw = $("#dbInput").value.trim();
-  const id = extractDbId(raw);
-  if (!id) {
-    setStatus(s2.status, "err", "❌ DB 링크/ID를 입력하세요.");
-    setStep(s2.dot, s2.pill, "err", "오류");
-    return;
-  }
-
-  setStep(s2.dot, s2.pill, "do", "속성 불러오는 중");
-  setStatus(s2.status, "info", "잠시만요… DB 메타데이터를 불러오는 중입니다.");
-
-  try {
-    const { ok, props, error } = await api("/props", { databaseId: id });
-    if (!ok) throw new Error(error || "속성 불러오기 실패");
-
-    const list = normalizeProps(props);
-    const sel = $("#propSelect");
-    sel.innerHTML = "";
-    for (const p of list) {
-      if (!p?.name) continue;
-      const opt = document.createElement("option");
-      opt.value = p.name;
-      opt.textContent = p.type ? `${p.name} (${p.type})` : p.name;
-      sel.appendChild(opt);
-    }
-    if (!sel.options.length) {
-      setStep(s2.dot, s2.pill, "err", "오류");
-      setStatus(s2.status, "err", "⚠️ 표시할 속성이 없습니다. DB 권한/속성 타입(number/formula/rollup) 확인");
-      $("#propSelect").disabled = true;
-      $("#sumBtn").disabled = true;
-      return;
-    }
-    $("#propSelect").disabled = false;
-    $("#sumBtn").disabled = false;
-    setStep(s2.dot, s2.pill, "ok", "속성 로드");
-    setStatus(s2.status, "ok", `📥 속성 ${sel.options.length}개 불러왔습니다. 합계를 계산할 속성을 선택하세요.`);
-
-    saveCfg({ proxy: $("#proxy").value, db: id, prop: sel.value });
-    // Step3 안내
-    setStep(s3.dot, s3.pill, "wait", "대기");
-    setStatus(s3.status, "info", "이제 '합계 계산'을 눌러 결과를 확인하세요.");
-  } catch (e) {
-    setStep(s2.dot, s2.pill, "err", "오류");
-    setStatus(s2.status, "err", `❌ ${e.message}`);
-    $("#propSelect").disabled = true;
-    $("#sumBtn").disabled = true;
-  }
-}
-
-async function onSum() {
-  const id = extractDbId($("#dbInput").value.trim());
-  const prop = $("#propSelect").value;
-  if (!id || !prop) {
-    setStatus(s3.status, "err", "❌ DB와 속성을 먼저 설정하세요.");
-    setStep(s3.dot, s3.pill, "err", "오류");
-    return;
-  }
-  setStep(s3.dot, s3.pill, "do", "합계 계산중");
-  setStatus(s3.status, "info", "데이터를 집계하고 있어요…");
-
-  try {
-    const resp = await api("/sum", { databaseId: id, prop });
-    if (!resp || resp.ok === false) throw new Error(resp?.error || "합계 계산 실패");
-    const sumVal =
-      typeof resp.sum === "number" ? resp.sum :
-      typeof resp.total === "number" ? resp.total : 0;
-    const countVal = typeof resp.count === "number" ? resp.count : undefined;
-    const tail = countVal !== undefined ? ` (페이지 ${countVal}개)` : "";
-    $("#sumResult").textContent = `🎉 합계: ${sumVal}${tail}`;
-    setStep(s3.dot, s3.pill, "ok", "완료");
-    setStatus(s3.status, "ok", "✅ 계산이 완료되었습니다.");
-  } catch (e) {
-    setStep(s3.dot, s3.pill, "err", "오류");
-    setStatus(s3.status, "err", `❌ ${e.message}`);
-  }
-}
-
-async function onLogout() {
-  try {
-    await api("/oauth/logout", {});
-    setStatus(s1.status, "info", "로그아웃되었습니다. 다시 로그인하여 연결하세요.");
-    setStep(s1.dot, s1.pill, "wait", "대기");
-    // 비활성화
-    $("#loadPropsBtn").disabled = true;
-    $("#propSelect").disabled = true;
-    $("#sumBtn").disabled = true;
-    $("#sumResult").textContent = "";
-    setStatus(s2.status, "info", "로그인 후에 진행할 수 있습니다.");
-    setStatus(s3.status, "info", "속성을 먼저 선택하세요.");
-  } catch (e) {
-    setStatus(s1.status, "err", `❌ 로그아웃 실패: ${e.message}`);
-  }
-}
