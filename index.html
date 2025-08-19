@@ -338,15 +338,22 @@
           <li>Notion에서 집계할 <strong>데이터베이스 페이지</strong>로 이동</li>
           <li>페이지 우상단의 <strong>"⋯" (더보기)</strong> 버튼 클릭</li>
           <li><strong>"연결 추가"</strong> 또는 <strong>"Add connections"</strong> 선택</li>
-          <li><strong>"NotionDB-Aggregator"</strong> 또는 생성한 Integration 이름 검색 후 연결</li>
+          <li><strong>"Public-Counter"</strong> Integration 검색 후 연결</li>
+          <li>데이터베이스 URL 복사 시 <strong>"?v=" 부분 제거</strong></li>
           <li>아래에 데이터베이스 URL 입력 후 연결 테스트</li>
         </ol>
+        <div style="background: #e8f5e8; padding: 10px; border-radius: 5px; margin-top: 10px;">
+          <strong>💡 올바른 URL 예시:</strong><br>
+          ✅ https://notion.so/12345678901234567890123456789012<br>
+          ❌ https://notion.so/12345678901234567890123456789012?v=abc123
+        </div>
       </div>
       
       <label for="databaseInput">데이터베이스 URL 또는 ID</label>
       <input id="databaseInput" placeholder="https://www.notion.so/... 또는 데이터베이스 ID">
       
       <button id="connectDbBtn">🔗 데이터베이스 연결 테스트</button>
+      <button id="debugBtn" style="background: #9b59b6; margin-top: 5px;">🔍 연결 디버그</button>
       
       <div class="status" id="dbStatus"></div>
     </div>
