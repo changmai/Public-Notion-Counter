@@ -1,61 +1,107 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-  <meta charset="UTF-8">
-  <title>Notion DB 합계 웹앱</title>
-  <script defer src="script.js"></script>
+  <meta charset="UTF-8" />
+  <title>Public Notion Counter</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
   <style>
-    body {
-      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-      max-width: 600px; margin: 40px auto; padding: 30px;
-      border-radius: 12px; background: #fefefe; box-shadow: 0 4px 20px rgba(0,0,0,0.12);
+    :root{
+      --pri:#2563eb; --ok:#16a34a; --err:#dc2626; --bg:#0b1220; --card:#0f172a; --mut:#94a3b8;
     }
-    h1 { text-align: center; margin-bottom: 25px; color: #2c3e50; }
-    label { font-weight: 600; margin-top: 12px; display: block; color: #34495e; }
-    input, button, select {
-      margin: 10px 0 18px; padding: 12px; width: 100%; box-sizing: border-box;
-      border: 1px solid #ccc; border-radius: 6px; font-size: 14px; transition: .2s;
+    *{box-sizing:border-box}
+    body{
+      margin:0; padding:32px;
+      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Noto Sans, Arial, "Apple Color Emoji","Segoe UI Emoji";
+      background:linear-gradient(180deg,#0b1220 0%,#111827 100%);
+      color:#e5e7eb;
     }
-    input:focus, select:focus { border-color: #3498db; outline: none; box-shadow: 0 0 5px rgba(52,152,219,0.4); }
-    button {
-      cursor: pointer; background: linear-gradient(135deg, #3498db, #2980b9); color: #fff;
-      border: none; font-weight: bold; transition: .2s ease;
+    .container{max-width:720px;margin:0 auto}
+    h1{margin:0 0 12px;font-size:28px}
+    p.lead{margin:0 0 24px;color:#cbd5e1}
+    .card{background:var(--card);border:1px solid #1f2937;border-radius:14px;padding:18px 16px;margin:14px 0}
+    label{display:block;font-weight:600;margin:6px 0 8px;color:#dbeafe}
+    input,select,button{
+      width:100%;padding:12px 14px;border-radius:10px;border:1px solid #334155;background:#0b1220;color:#e5e7eb;
+      transition:.2s; font-size:14px;
     }
-    button:hover { background: linear-gradient(135deg, #2980b9, #1f6391); transform: translateY(-1px); box-shadow: 0 3px 8px rgba(0,0,0,0.15); }
-    button:active { transform: scale(0.97); }
-    button[disabled]{ opacity:.6; cursor:not-allowed; }
-    #status {
-      margin-top: 20px; font-weight: bold; text-align: center; color: #222;
-      padding: 14px; border-radius: 8px; transition:.3s; animation: fadeIn .4s ease;
-    }
-    #status.success { background: #eafaf1; color: #27ae60; border: 1px solid #bfe5d2; }
-    #status.error   { background: #fdecea; color: #c0392b; border: 1px solid #f5b7b1; }
-    @keyframes fadeIn { from {opacity:0; transform: translateY(5px);} to {opacity:1; transform: translateY(0);} }
+    input:focus,select:focus{outline:none;border-color:#60a5fa; box-shadow:0 0 0 3px #1d4ed80f}
+    button{background:linear-gradient(135deg,#3b82f6,#2563eb);border:none;font-weight:700;cursor:pointer}
+    button[disabled]{opacity:.6;cursor:not-allowed}
+    .row{display:grid;grid-template-columns:1fr auto;gap:10px}
+    .status{margin-top:10px;padding:10px;border-radius:10px;font-weight:600}
+    .status.ok{background:#052e1a;color:#86efac;border:1px solid #14532d}
+    .status.err{background:#3b0d0d;color:#fecaca;border:1px solid #7f1d1d}
+    .status.info{background:#0b1220;color:#cbd5e1;border:1px dashed #334155}
+    .muted{color:var(--mut);font-size:12px;margin-top:6px}
+    .flex{display:flex;gap:10px}
+    .step{display:flex;align-items:center;gap:10px;margin:4px 0 10px}
+    .dot{width:22px;height:22px;border-radius:50%;display:inline-grid;place-items:center;font-size:12px;font-weight:800}
+    .dot.wait{background:#1f2937;color:#9ca3af;border:1px solid #374151}
+    .dot.do{background:#1d4ed8;border:1px solid #2563eb}
+    .dot.done{background:#065f46;border:1px solid #10b981}
+    .pill{margin-left:auto;padding:4px 8px;border-radius:999px;font-size:12px;border:1px solid #334155;color:#cbd5e1}
+    .pill.ok{border-color:#166534;color:#86efac}
+    .pill.err{border-color:#7f1d1d;color:#fecaca}
+    .pill.do{border-color:#1d4ed8;color:#93c5fd}
+    .result{font-size:18px;font-weight:800;margin-top:6px}
+    .hr{height:1px;background:#1f2937;margin:14px 0}
   </style>
 </head>
 <body>
-  <h1>📊 Notion DB 합계</h1>
+  <div class="container">
+    <h1>📊 Public Notion Counter</h1>
+    <p class="lead">Notion으로 로그인 → DB 선택 → 속성 합계 계산. 단계별로 진행합니다.</p>
 
-  <label>프록시 URL</label>
-  <input id="proxy" placeholder="예: https://your-worker.workers.dev">
+    <!-- STEP 1: Proxy & OAuth -->
+    <div class="card" id="step1">
+      <div class="step">
+        <div class="dot wait" id="s1dot">1</div>
+        <div><strong>프록시 & 로그인</strong><div class="muted">프록시 주소 확인 후 Notion 로그인</div></div>
+        <div class="pill" id="s1pill">대기</div>
+      </div>
+      <label>프록시 URL</label>
+      <div class="row">
+        <input id="proxy" value="https://crimson-salad-9cb7.code0630.workers.dev" />
+        <button id="loginBtn" style="min-width:160px">🔑 Notion으로 로그인</button>
+      </div>
+      <div id="s1status" class="status info">로그인 후 자동으로 이 페이지로 돌아옵니다.</div>
+    </div>
 
-  <!-- (선택) 토큰을 직접 쓰고 싶으면 여기에 입력. 비워두면 OAuth 쿠키 사용 -->
-  <label>통합 토큰 (선택)</label>
-  <input id="token" placeholder="Notion 통합 토큰 (OAuth 사용 시 비워두기)">
+    <!-- STEP 2: DB & Props -->
+    <div class="card" id="step2">
+      <div class="step">
+        <div class="dot wait" id="s2dot">2</div>
+        <div><strong>데이터베이스 연결</strong><div class="muted">DB 링크/ID 입력 → 속성 불러오기</div></div>
+        <div class="pill" id="s2pill">대기</div>
+      </div>
+      <label>데이터베이스 링크 또는 ID</label>
+      <input id="dbInput" placeholder="https://www.notion.so/xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx?v=..." />
+      <div class="flex">
+        <button id="loadPropsBtn" disabled>📥 속성 불러오기</button>
+        <select id="propSelect" disabled></select>
+      </div>
+      <div id="s2status" class="status info">로그인 완료 후 활성화됩니다.</div>
+    </div>
 
-  <button id="login">🔑 Notion으로 로그인</button>
+    <!-- STEP 3: Sum -->
+    <div class="card" id="step3">
+      <div class="step">
+        <div class="dot wait" id="s3dot">3</div>
+        <div><strong>합계 계산</strong><div class="muted">선택한 속성의 합계를 계산합니다.</div></div>
+        <div class="pill" id="s3pill">대기</div>
+      </div>
+      <div class="flex">
+        <button id="sumBtn" disabled>➕ DB 합계 계산</button>
+        <button id="logoutBtn" class="muted" style="border:1px solid #334155;background:#0b1220;">로그아웃</button>
+      </div>
+      <div id="s3status" class="status info">속성을 먼저 선택하세요.</div>
+      <div class="result" id="sumResult"></div>
+    </div>
 
-  <label>데이터베이스 ID 또는 공유 링크</label>
-  <input id="databaseInput" placeholder="DB URL 또는 ID">
+    <div class="hr"></div>
+    <p class="muted">Tip: DB가 비어있거나 접근 권한이 없으면 속성이 보이지 않습니다. (Notion에서 해당 DB에 통합을 Add connections로 추가)</p>
+  </div>
 
-  <button id="save">💾 설정 저장</button>
-  <button id="loadProps">📥 속성 불러오기</button>
-
-  <label>데이터베이스 속성 선택</label>
-  <select id="propSelect"></select>
-
-  <button id="sumBtn">➕ DB 합계 계산</button>
-
-  <div id="status">상태 메시지가 여기에 표시됩니다.</div>
+  <script defer src="script.js"></script>
 </body>
 </html>
