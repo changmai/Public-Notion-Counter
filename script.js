@@ -11,6 +11,11 @@ let isLoggedIn = false;
 let selectedDatabase = null;
 let userInfo = null;
 
+// 자동 새로고침 관리
+let autoRefreshInterval = null;
+let lastCalculationResult = null;
+let isCalculating = false;
+
 // 숫자 포맷팅
 function formatNumber(num) {
   return new Intl.NumberFormat('ko-KR').format(num);
@@ -497,9 +502,24 @@ async function loadProperties() {
   }
 }
 
-// 합계 계산
-async function calculateSum() {
+// 수동으로 로그인 상태 새로고침
+async function refreshLoginStatus() {
+  setStatus("loginStatus", "🔄 로그인 상태 새로고침 중...", "info");
+  
+  const success = await checkLoginStatus();
+  if (!success) {
+    setStatus("loginStatus", "❌ 로그인 상태를 확인할 수 없습니다. 페이지를 새로고침하거나 다시 로그인해주세요.", "error");
+  }
+  updateDebugInfo();
+}
+
+// 합계 계산 (자동/수동 모드 지원)
+async function calculateSum(silent = false) {
+  if (isCalculating) return; // 중복 실행 방지
+  
   try {
+    isCalculating = true;
+    
     if (!selectedDatabase) {
       throw new Error("먼저 데이터베이스를 연결해주세요.");
     }
@@ -509,7 +529,9 @@ async function calculateSum() {
       throw new Error("집계할 속성을 선택해주세요.");
     }
     
-    setStatus("calculateStatus", "🔄 데이터를 분석하고 합계를 계산 중...", "info");
+    if (!silent) {
+      setStatus("calculateStatus", "🔄 데이터를 분석하고 합계를 계산 중...", "info");
+    }
     
     const response = await callProxy("/sum", { 
       databaseId: selectedDatabase.id, 
@@ -522,20 +544,50 @@ async function calculateSum() {
     
     const total = response.total || response.sum || 0;
     const count = response.count || 0;
+    const currentResult = { total, count, timestamp: Date.now() };
+    
+    // 변경사항 확인 및 표시
+    if (silent && lastCalculationResult) {
+      showChangeIndicator(lastCalculationResult, currentResult);
+    }
     
     // 결과 표시
     $("#resultNumber").textContent = formatNumber(total);
     $("#resultLabel").textContent = `총 ${formatNumber(count)}개 항목의 합계`;
+    $("#lastUpdate").textContent = new Date().toLocaleString();
     $("#resultBox").classList.remove("hidden");
     $("#resultBox").classList.add("fade-in");
     
-    setStatus("calculateStatus", `🎉 계산 완료! 총 ${formatNumber(count)}개 항목의 합계: ${formatNumber(total)}`, "success");
-    updateStepStatus(4, 'completed');
+    if (!silent) {
+      setStatus("calculateStatus", `🎉 계산 완료! 총 ${formatNumber(count)}개 항목의 합계: ${formatNumber(total)}`, "success");
+      updateStepStatus(4, 'completed');
+    } else {
+      console.log(`🔄 자동 업데이트 완료: ${formatNumber(total)} (${formatNumber(count)}개 항목)`);
+    }
+    
+    // 결과 저장
+    lastCalculationResult = currentResult;
     
   } catch (error) {
-    updateStepStatus(4, 'error');
-    setStatus("calculateStatus", `❌ ${error.message}`, "error");
+    if (!silent) {
+      updateStepStatus(4, 'error');
+      setStatus("calculateStatus", `❌ ${error.message}`, "error");
+    } else {
+      console.error("자동 합계 계산 오류:", error.message);
+      // 자동 새로고침 중 오류 발생 시 일시 중지
+      if (error.message.includes('로그인') || error.message.includes('권한')) {
+        stopAutoRefresh();
+        $("#autoRefreshEnabled").checked = false;
+        setStatus("calculateStatus", "❌ 자동 새로고침 중 인증 오류가 발생하여 중지되었습니다.", "error");
+      }
+    }
+  } finally {
+    isCalculating = false;
   }
+}}
+    
+    // 기존 결과를 백업하고 합계 계산
+    const oldResult = lastCalculationResult;
 }
 
 // 디버그 정보 업데이트
@@ -545,15 +597,77 @@ function updateDebugInfo() {
   $("#apiDebug").textContent = isLoggedIn ? "로그인됨" : "로그아웃됨";
 }
 
-// 수동으로 로그인 상태 새로고침
-async function refreshLoginStatus() {
-  setStatus("loginStatus", "🔄 로그인 상태 새로고침 중...", "info");
+// 자동 새로고침 관련 함수들
+function startAutoRefresh() {
+  const intervalSeconds = parseInt($("#refreshInterval").value);
+  const intervalMs = intervalSeconds * 1000;
   
-  const success = await checkLoginStatus();
-  if (!success) {
-    setStatus("loginStatus", "❌ 로그인 상태를 확인할 수 없습니다. 페이지를 새로고침하거나 다시 로그인해주세요.", "error");
+  // 기존 interval 정리
+  if (autoRefreshInterval) {
+    clearInterval(autoRefreshInterval);
   }
-  updateDebugInfo();
+  
+  autoRefreshInterval = setInterval(async () => {
+    if (!isCalculating && selectedDatabase && $("#propSelect").value) {
+      console.log("🔄 자동 새로고침 실행");
+      await calculateSum(true); // silent 모드
+    }
+  }, intervalMs);
+  
+  updateAutoRefreshStatus();
+  console.log(`✅ 자동 새로고침 시작: ${intervalSeconds}초 간격`);
+}
+
+function stopAutoRefresh() {
+  if (autoRefreshInterval) {
+    clearInterval(autoRefreshInterval);
+    autoRefreshInterval = null;
+  }
+  updateAutoRefreshStatus();
+  console.log("⏹️ 자동 새로고침 중지");
+}
+
+function updateAutoRefreshStatus() {
+  const statusEl = $("#autoRefreshStatus");
+  const isEnabled = $("#autoRefreshEnabled").checked;
+  const interval = $("#refreshInterval").value;
+  
+  if (isEnabled && autoRefreshInterval) {
+    const nextUpdate = new Date(Date.now() + parseInt(interval) * 1000);
+    statusEl.innerHTML = `🔄 자동 새로고침 활성화 (${interval}초 간격) | 다음 업데이트: ${nextUpdate.toLocaleTimeString()}`;
+    statusEl.style.color = "#27ae60";
+  } else {
+    statusEl.innerHTML = "자동 새로고침이 비활성화되어 있습니다.";
+    statusEl.style.color = "#666";
+  }
+}
+
+function showChangeIndicator(oldResult, newResult) {
+  const indicator = $("#changeIndicator");
+  
+  if (!oldResult || !newResult) return;
+  
+  const oldTotal = oldResult.total || 0;
+  const newTotal = newResult.total || 0;
+  const difference = newTotal - oldTotal;
+  
+  if (difference === 0) {
+    indicator.innerHTML = "📊 변경사항 없음";
+    indicator.style.color = "#666";
+  } else if (difference > 0) {
+    indicator.innerHTML = `📈 증가: +${formatNumber(difference)}`;
+    indicator.style.color = "#27ae60";
+    indicator.style.animation = "pulse 2s ease-in-out";
+  } else {
+    indicator.innerHTML = `📉 감소: ${formatNumber(difference)}`;
+    indicator.style.color = "#e74c3c";
+    indicator.style.animation = "pulse 2s ease-in-out";
+  }
+  
+  // 애니메이션 후 제거
+  setTimeout(() => {
+    indicator.style.animation = "";
+  }, 2000);
 }
 
 // OAuth 토큰 처리
@@ -587,7 +701,25 @@ function handleOAuthToken() {
   return false;
 }
 
-// 초기화 with OAuth token handling
+// 브라우저 가시성 변경 감지
+function handleVisibilityChange() {
+  if (!document.hidden && $("#autoRefreshEnabled").checked) {
+    // 탭이 다시 활성화되면 즉시 한 번 계산
+    console.log("👁️ 브라우저 탭 활성화 - 즉시 업데이트");
+    setTimeout(() => {
+      if (!isCalculating && selectedDatabase && $("#propSelect").value) {
+        calculateSum(true);
+      }
+    }, 1000);
+  }
+}
+
+// 페이지 언로드 시 정리
+function cleanup() {
+  stopAutoRefresh();
+}
+
+// 초기화 with auto-refresh support
 document.addEventListener("DOMContentLoaded", async () => {
   console.log("🚀 웹앱 초기화 시작");
   
@@ -602,7 +734,6 @@ document.addEventListener("DOMContentLoaded", async () => {
   
   if (hasOAuthToken) {
     console.log("🔑 OAuth 토큰 처리 중...");
-    // OAuth 토큰이 있으면 다른 초기화는 handleOAuthToken에서 처리
   } else {
     // 연결 상태 테스트
     setStatus("loginStatus", "🔄 서버 연결 상태 확인 중...", "info");
@@ -633,13 +764,39 @@ document.addEventListener("DOMContentLoaded", async () => {
     }
   }
   
-  // 이벤트 리스너 등록
+  // 기본 이벤트 리스너 등록
   $("#loginBtn").addEventListener("click", withLoading($("#loginBtn"), handleLogin));
   $("#logoutBtn").addEventListener("click", withLoading($("#logoutBtn"), handleLogout));
   $("#refreshBtn").addEventListener("click", withLoading($("#refreshBtn"), refreshLoginStatus));
   $("#connectDbBtn").addEventListener("click", withLoading($("#connectDbBtn"), connectDatabase));
   $("#loadPropsBtn").addEventListener("click", withLoading($("#loadPropsBtn"), loadProperties));
-  $("#calculateBtn").addEventListener("click", withLoading($("#calculateBtn"), calculateSum));
+  $("#calculateBtn").addEventListener("click", withLoading($("#calculateBtn"), () => calculateSum(false)));
+  
+  // 자동 새로고침 관련 이벤트 리스너
+  $("#autoRefreshEnabled").addEventListener("change", function() {
+    if (this.checked) {
+      if (selectedDatabase && $("#propSelect").value) {
+        startAutoRefresh();
+      } else {
+        this.checked = false;
+        alert("먼저 데이터베이스를 연결하고 속성을 선택해주세요.");
+      }
+    } else {
+      stopAutoRefresh();
+    }
+  });
+  
+  $("#refreshInterval").addEventListener("change", function() {
+    if ($("#autoRefreshEnabled").checked) {
+      startAutoRefresh(); // 간격 변경 시 재시작
+    }
+  });
+  
+  // 브라우저 가시성 변경 감지
+  document.addEventListener("visibilitychange", handleVisibilityChange);
+  
+  // 페이지 언로드 시 정리
+  window.addEventListener("beforeunload", cleanup);
   
   console.log("✅ 웹앱 초기화 완료");
 });
