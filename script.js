@@ -223,29 +223,106 @@ function normalizeProps(props) {
   return out;
 }
 
-// 쿠키 확인 헬퍼 함수 추가
-function getCookie(name) {
-  const value = `; ${document.cookie}`;
-  const parts = value.split(`; ${name}=`);
-  if (parts.length === 2) return parts.pop().split(';').shift();
-  return null;
+// 토큰 관리 함수들
+function saveToken(token) {
+  try {
+    localStorage.setItem('notion_access_token', token);
+    console.log("✅ 토큰 저장 완료");
+    return true;
+  } catch (error) {
+    console.error("❌ 토큰 저장 실패:", error);
+    return false;
+  }
 }
 
-// 세션 디버깅 함수
-function debugSession() {
-  console.log("🍪 현재 쿠키:", document.cookie);
-  console.log("🔑 ntk 세션:", getCookie('ntk'));
-  console.log("📍 현재 URL:", window.location.href);
+function getToken() {
+  try {
+    return localStorage.getItem('notion_access_token');
+  } catch (error) {
+    console.error("❌ 토큰 조회 실패:", error);
+    return null;
+  }
 }
 
-// 수동으로 로그인 상태 새로고침
-async function refreshLoginStatus() {
-  setStatus("loginStatus", "🔄 로그인 상태 새로고침 중...", "info");
-  debugSession();
+function clearToken() {
+  try {
+    localStorage.removeItem('notion_access_token');
+    console.log("✅ 토큰 삭제 완료");
+  } catch (error) {
+    console.error("❌ 토큰 삭제 실패:", error);
+  }
+}
+
+// API 호출 with token from localStorage
+async function callProxy(path, body = {}) {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 30000);
   
-  const success = await checkLoginStatus();
-  if (!success) {
-    setStatus("loginStatus", "❌ 로그인 상태를 확인할 수 없습니다. 페이지를 새로고침하거나 다시 로그인해주세요.", "error");
+  try {
+    console.log(`🌐 API 호출: ${path}`, body);
+    
+    // localStorage에서 토큰 가져오기
+    const token = getToken();
+    if (token) {
+      body.token = token;
+      console.log("🔑 localStorage 토큰 사용");
+    }
+    
+    const response = await fetch(`${PROXY_URL}${path}`, {
+      method: "POST",
+      headers: { 
+        "content-type": "application/json",
+        "Accept": "application/json"
+      },
+      credentials: "include",
+      body: JSON.stringify(body),
+      signal: controller.signal
+    });
+    
+    clearTimeout(timeoutId);
+    
+    console.log(`📡 응답 상태: ${response.status}`);
+    
+    if (!response.ok) {
+      let errorText;
+      try {
+        const errorData = await response.json();
+        errorText = errorData.error || `HTTP ${response.status}`;
+        console.log("❌ 에러 응답:", errorData);
+      } catch {
+        errorText = await response.text() || `HTTP ${response.status}`;
+        console.log("❌ 텍스트 에러:", errorText);
+      }
+      
+      if (response.status === 401) {
+        console.log("🔐 인증 필요 - 토큰 삭제");
+        clearToken();
+        isLoggedIn = false;
+        throw new Error("로그인이 필요합니다. Notion으로 다시 로그인해주세요.");
+      } else if (response.status === 403) {
+        throw new Error("접근 권한이 없습니다. CORS 설정이나 데이터베이스 권한을 확인해주세요.");
+      } else if (response.status === 404) {
+        throw new Error("요청한 리소스를 찾을 수 없습니다.");
+      } else if (response.status >= 500) {
+        throw new Error("서버 오류가 발생했습니다. 잠시 후 다시 시도해주세요.");
+      } else {
+        throw new Error(errorText);
+      }
+    }
+    
+    const result = await response.json();
+    console.log("✅ 성공 응답:", result);
+    return result;
+  } catch (error) {
+    clearTimeout(timeoutId);
+    
+    if (error.name === 'AbortError') {
+      throw new Error("요청 시간이 초과되었습니다. 네트워크 상태를 확인하고 다시 시도해주세요.");
+    }
+    if (error.name === 'TypeError' && error.message.includes('fetch')) {
+      throw new Error("네트워크 연결을 확인해주세요. 인터넷 연결이 불안정할 수 있습니다.");
+    }
+    throw error;
   }
 }
 
@@ -310,7 +387,8 @@ async function handleLogin() {
 // 로그아웃 처리
 async function handleLogout() {
   try {
-    await callProxy("/oauth/logout");
+    // 토큰 삭제
+    clearToken();
     
     isLoggedIn = false;
     userInfo = null;
@@ -319,6 +397,7 @@ async function handleLogout() {
     $("#userInfo").classList.add("hidden");
     $("#loginBtn").classList.remove("hidden");
     $("#logoutBtn").classList.add("hidden");
+    $("#refreshBtn").classList.add("hidden");
     
     // 폼 초기화
     $("#databaseInput").value = "";
@@ -332,6 +411,7 @@ async function handleLogout() {
     
     setStatus("loginStatus", "👋 로그아웃되었습니다.", "info", true);
     activateStep(1);
+    updateDebugInfo();
   } catch (error) {
     setStatus("loginStatus", `❌ 로그아웃 오류: ${error.message}`, "error");
   }
@@ -460,12 +540,54 @@ async function calculateSum() {
 
 // 디버그 정보 업데이트
 function updateDebugInfo() {
-  const sessionCookie = getCookie('ntk');
-  $("#sessionDebug").textContent = sessionCookie ? `존재 (${sessionCookie.substring(0, 8)}...)` : "없음";
+  const token = getToken();
+  $("#sessionDebug").textContent = token ? `존재 (${token.substring(0, 8)}...)` : "없음";
   $("#apiDebug").textContent = isLoggedIn ? "로그인됨" : "로그아웃됨";
 }
 
-// 초기화 with enhanced debugging and OAuth callback handling
+// 수동으로 로그인 상태 새로고침
+async function refreshLoginStatus() {
+  setStatus("loginStatus", "🔄 로그인 상태 새로고침 중...", "info");
+  
+  const success = await checkLoginStatus();
+  if (!success) {
+    setStatus("loginStatus", "❌ 로그인 상태를 확인할 수 없습니다. 페이지를 새로고침하거나 다시 로그인해주세요.", "error");
+  }
+  updateDebugInfo();
+}
+
+// OAuth 토큰 처리
+function handleOAuthToken() {
+  const urlParams = new URLSearchParams(window.location.search);
+  const accessToken = urlParams.get('access_token');
+  
+  if (accessToken) {
+    console.log("🎉 OAuth 토큰 수신:", accessToken.substring(0, 8) + "...");
+    
+    // 토큰 저장
+    if (saveToken(accessToken)) {
+      // URL에서 토큰 제거
+      window.history.replaceState({}, document.title, window.location.pathname);
+      
+      setStatus("loginStatus", "🔄 로그인 처리 중...", "info");
+      
+      // 로그인 상태 확인
+      setTimeout(async () => {
+        const success = await checkLoginStatus();
+        if (success) {
+          setStatus("loginStatus", "🎉 로그인 성공! 다음 단계로 진행하세요.", "success");
+        }
+        updateDebugInfo();
+      }, 1000);
+      
+      return true;
+    }
+  }
+  
+  return false;
+}
+
+// 초기화 with OAuth token handling
 document.addEventListener("DOMContentLoaded", async () => {
   console.log("🚀 웹앱 초기화 시작");
   
@@ -475,44 +597,32 @@ document.addEventListener("DOMContentLoaded", async () => {
   // 디버그 정보 초기화
   updateDebugInfo();
   
-  // 연결 상태 테스트
-  setStatus("loginStatus", "🔄 서버 연결 상태 확인 중...", "info");
-  const isConnected = await testConnection();
+  // OAuth 토큰 처리 (우선순위)
+  const hasOAuthToken = handleOAuthToken();
   
-  if (!isConnected) {
-    setStatus("loginStatus", "❌ 서버에 연결할 수 없습니다. 네트워크 상태를 확인해주세요.", "error");
-    return;
-  }
-  
-  // URL 파라미터 확인 (OAuth 콜백 처리)
-  const urlParams = new URLSearchParams(window.location.search);
-  const hasCode = urlParams.has('code');
-  const hasError = urlParams.has('error');
-  
-  console.log("📍 URL 파라미터:", { hasCode, hasError, url: window.location.href });
-  
-  if (hasError) {
-    const error = urlParams.get('error');
-    setStatus("loginStatus", `❌ OAuth 로그인 오류: ${error}`, "error");
-    window.history.replaceState({}, document.title, window.location.pathname);
-    return;
-  }
-  
-  if (hasCode) {
-    console.log("🔄 OAuth 콜백 감지 - 로그인 처리 중...");
-    setStatus("loginStatus", "🔄 OAuth 로그인 처리 중...", "info");
-    
-    // URL 정리
-    window.history.replaceState({}, document.title, window.location.pathname);
-    
-    // 잠시 대기 후 로그인 상태 확인
-    setTimeout(async () => {
-      console.log("⏱️ OAuth 처리 대기 완료, 로그인 상태 확인 시작");
-      await checkLoginStatus();
-      updateDebugInfo();
-    }, 2000); // 2초 대기
+  if (hasOAuthToken) {
+    console.log("🔑 OAuth 토큰 처리 중...");
+    // OAuth 토큰이 있으면 다른 초기화는 handleOAuthToken에서 처리
   } else {
-    // 일반적인 로그인 상태 확인
+    // 연결 상태 테스트
+    setStatus("loginStatus", "🔄 서버 연결 상태 확인 중...", "info");
+    const isConnected = await testConnection();
+    
+    if (!isConnected) {
+      setStatus("loginStatus", "❌ 서버에 연결할 수 없습니다. 네트워크 상태를 확인해주세요.", "error");
+      return;
+    }
+    
+    // URL 파라미터 확인 (에러 처리)
+    const urlParams = new URLSearchParams(window.location.search);
+    if (urlParams.has('error')) {
+      const error = urlParams.get('error');
+      setStatus("loginStatus", `❌ OAuth 로그인 오류: ${error}`, "error");
+      window.history.replaceState({}, document.title, window.location.pathname);
+      return;
+    }
+    
+    // 기존 토큰으로 로그인 상태 확인
     setStatus("loginStatus", "🔄 로그인 상태 확인 중...", "info");
     const loginSuccess = await checkLoginStatus();
     updateDebugInfo();
