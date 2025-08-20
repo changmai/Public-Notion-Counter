@@ -160,7 +160,6 @@ function restoreAppState(state) {
     const token = getToken();
     if (!token) {
       console.log("⚠️ 토큰이 없어서 로그인 상태만 초기화");
-      // 토큰 없으면 로그인 관련 상태만 초기화
       isLoggedIn = false;
       userInfo = null;
       // 나머지 데이터베이스 관련 상태는 유지
@@ -168,7 +167,7 @@ function restoreAppState(state) {
       lastCalculationResult = state.lastCalculationResult;
     } else {
       // 토큰이 있으면 모든 상태 복원
-      isLoggedIn = state.isLoggedIn || false;
+      isLoggedIn = state.isLoggedIn || true; // 토큰이 있으면 로그인된 것으로 간주
       userInfo = state.userInfo;
       selectedDatabase = state.selectedDatabase;
       lastCalculationResult = state.lastCalculationResult;
@@ -188,45 +187,39 @@ function restoreAppState(state) {
     }
     
     // 로그인 상태 UI 복원 (토큰이 있을 때만)
-    if (isLoggedIn && userInfo && token) {
-      displayUserInfo(userInfo);
+    if (isLoggedIn && token) {
+      if (userInfo) {
+        displayUserInfo(userInfo);
+      }
       $("#loginBtn").classList.add("hidden");
       $("#logoutBtn").classList.remove("hidden");
-      activateStep(2);
+      
+      // 토큰이 있고 저장된 데이터베이스가 있으면 자동 연결 시도
+      if (selectedDatabase && state.databaseInput) {
+        autoConnectDatabase(state);
+        return true;
+      } else {
+        activateStep(2);
+      }
     } else {
-      // 토큰이 없으면 로그인 버튼 표시
+      // 토큰이 없으면 로그인 버튼 표시하지만 다른 정보는 유지
       $("#loginBtn").classList.remove("hidden");
       $("#logoutBtn").classList.add("hidden");
       activateStep(1);
-    }
-    
-    // 데이터베이스 연결 상태 복원 (로그인과 무관하게)
-    if (selectedDatabase) {
-      setStatus("dbStatus", "💾 이전에 연결된 데이터베이스가 복원되었습니다.", "info");
-      activateStep(isLoggedIn ? 3 : 2);
       
-      // 속성 복원
-      restoreDatabaseProperties(selectedDatabase.properties, state.selectedProperty);
-    }
-    
-    // 계산 결과 복원 (로그인과 무관하게)
-    if (lastCalculationResult) {
-      $("#resultNumber").textContent = formatNumber(lastCalculationResult.total || 0);
-      $("#resultLabel").textContent = `총 ${formatNumber(lastCalculationResult.count || 0)}개 항목의 합계`;
-      $("#lastUpdate").textContent = new Date(lastCalculationResult.timestamp).toLocaleString();
-      $("#resultBox").classList.remove("hidden");
+      // 토큰이 없어도 이전 결과는 표시
+      if (lastCalculationResult) {
+        $("#resultNumber").textContent = formatNumber(lastCalculationResult.total || 0);
+        $("#resultLabel").textContent = `총 ${formatNumber(lastCalculationResult.count || 0)}개 항목의 합계 (이전 결과)`;
+        $("#lastUpdate").textContent = new Date(lastCalculationResult.timestamp).toLocaleString();
+        $("#resultBox").classList.remove("hidden");
+        setStatus("calculateStatus", "💾 이전 계산 결과입니다. 실시간 업데이트를 위해 로그인해주세요.", "info");
+      }
       
+      // 데이터베이스 정보도 표시 (연결은 안 되지만 정보는 보여줌)
       if (selectedDatabase) {
-        activateStep(isLoggedIn ? 4 : 2);
-        updateStepStatus(4, 'completed');
-        setStatus("calculateStatus", "💾 이전 계산 결과가 복원되었습니다.", "info");
-        
-        // 자동 새로고침은 로그인된 상태에서만 시작
-        if (state.autoRefreshEnabled && state.selectedProperty && isLoggedIn && token) {
-          setTimeout(() => {
-            startAutoRefresh();
-          }, 2000);
-        }
+        setStatus("dbStatus", "💾 이전에 연결된 데이터베이스 정보입니다. 실시간 업데이트를 위해 로그인해주세요.", "info");
+        restoreDatabaseProperties(selectedDatabase.properties, state.selectedProperty);
       }
     }
     
@@ -235,6 +228,104 @@ function restoreAppState(state) {
   } catch (error) {
     console.error("❌ 상태 복원 중 오류:", error);
     return false;
+  }
+}
+
+// 자동 데이터베이스 연결 함수
+async function autoConnectDatabase(state) {
+  try {
+    setStatus("dbStatus", "🔄 저장된 데이터베이스 자동 연결 중...", "info");
+    
+    const databaseId = extractDbId(state.databaseInput);
+    
+    // 데이터베이스 접근 테스트
+    const response = await callProxy("/props", { databaseId });
+    
+    if (response.ok) {
+      selectedDatabase = {
+        id: databaseId,
+        properties: response.props
+      };
+      
+      setStatus("dbStatus", "✅ 데이터베이스가 자동으로 연결되었습니다.", "success");
+      
+      // 속성 자동 복원
+      await autoLoadProperties(state);
+      
+    } else {
+      throw new Error("데이터베이스 자동 연결에 실패했습니다.");
+    }
+  } catch (error) {
+    console.error("자동 연결 실패:", error);
+    setStatus("dbStatus", "⚠️ 자동 연결 실패. 수동으로 '데이터베이스 연결 테스트' 버튼을 클릭해주세요.", "error");
+    activateStep(2);
+  }
+}
+
+// 자동 속성 로딩 함수
+async function autoLoadProperties(state) {
+  try {
+    setStatus("propStatus", "🔄 저장된 속성 자동 복원 중...", "info");
+    
+    const properties = normalizeProps(selectedDatabase.properties);
+    const select = $("#propSelect");
+    
+    // 옵션 초기화
+    select.innerHTML = '<option value="">속성을 선택하세요</option>';
+    
+    if (properties.length === 0) {
+      throw new Error("집계 가능한 숫자 속성이 없습니다.");
+    }
+    
+    // 속성 옵션 추가 및 이전 선택값 복원
+    properties.forEach(prop => {
+      const option = document.createElement("option");
+      option.value = prop.name;
+      option.textContent = prop.displayName;
+      if (prop.name === state.selectedProperty) {
+        option.selected = true;
+      }
+      select.appendChild(option);
+    });
+    
+    setStatus("propStatus", `✅ ${properties.length}개의 속성이 자동으로 복원되었습니다.`, "success");
+    
+    // 이전에 선택된 속성이 있으면 자동으로 계산까지 수행
+    if (state.selectedProperty && select.value === state.selectedProperty) {
+      activateStep(4);
+      updateStepStatus(4, 'completed');
+      
+      // 계산 결과 복원
+      if (state.lastCalculationResult) {
+        lastCalculationResult = state.lastCalculationResult;
+        $("#resultNumber").textContent = formatNumber(lastCalculationResult.total || 0);
+        $("#resultLabel").textContent = `총 ${formatNumber(lastCalculationResult.count || 0)}개 항목의 합계`;
+        $("#lastUpdate").textContent = new Date(lastCalculationResult.timestamp).toLocaleString();
+        $("#resultBox").classList.remove("hidden");
+        setStatus("calculateStatus", "✅ 모든 설정이 자동으로 복원되었습니다. 실시간 업데이트가 시작됩니다.", "success");
+        
+        // 자동 새로고침 시작
+        if (state.autoRefreshEnabled) {
+          setTimeout(() => {
+            startAutoRefresh();
+            console.log("🔄 자동 새로고침이 시작되었습니다.");
+          }, 3000); // 3초 후 시작
+        }
+        
+        // 한 번 즉시 업데이트
+        setTimeout(() => {
+          calculateSum(true); // silent 모드로 즉시 업데이트
+        }, 5000); // 5초 후 첫 업데이트
+      }
+    } else {
+      activateStep(3);
+      setStatus("propStatus", "속성을 선택한 후 합계 계산을 진행해주세요.", "info");
+    }
+    
+  } catch (error) {
+    console.error("자동 속성 로딩 실패:", error);
+    setStatus("propStatus", "⚠️ 속성 자동 복원 실패. 수동으로 '속성 불러오기' 버튼을 클릭해주세요.", "error");
+    activateStep(3);
   }
 }
 
@@ -477,11 +568,20 @@ function handleOAuthToken() {
       
       setStatus("loginStatus", "🔄 로그인 처리 중...", "info");
       
-      // 로그인 상태 확인
+      // 로그인 상태 확인 및 저장된 상태 복원
       setTimeout(async () => {
         const success = await checkLoginStatus();
         if (success) {
-          setStatus("loginStatus", "🎉 로그인 성공! 다음 단계로 진행하세요.", "success");
+          setStatus("loginStatus", "🎉 로그인 성공!", "success");
+          
+          // 저장된 상태가 있으면 자동으로 모든 과정 수행
+          const savedState = loadAppState();
+          if (savedState && savedState.databaseInput && savedState.selectedProperty) {
+            console.log("🔄 저장된 설정으로 자동 설정 시작");
+            await autoConnectDatabase(savedState);
+          } else {
+            activateStep(2);
+          }
         }
         updateDebugInfo();
       }, 1000);
@@ -882,9 +982,15 @@ document.addEventListener("DOMContentLoaded", async () => {
   });
   
   if (normalizedProps.length > 0) {
-    setStatus("propStatus", `💾 ${normalizedProps.length}개의 숫자 속성이 복원되었습니다.`, "info");
-    if (selectedProperty && isLoggedIn) {
-      activateStep(4);
+    const token = getToken();
+    if (token && isLoggedIn) {
+      setStatus("propStatus", `💾 ${normalizedProps.length}개의 숫자 속성이 복원되었습니다.`, "success");
+      if (selectedProperty) {
+        activateStep(4);
+        updateStepStatus(4, 'completed');
+      }
+    } else {
+      setStatus("propStatus", `💾 ${normalizedProps.length}개의 속성 정보 (로그인 후 활성화)`, "info");
     }
   }
 }
