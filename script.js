@@ -108,6 +108,136 @@ function extractDbId(input) {
   throw new Error("올바른 Notion 데이터베이스 ID가 아닙니다.");
 }
 
+// 상태 저장/복원 함수들
+function saveAppState() {
+  try {
+    const state = {
+      isLoggedIn,
+      userInfo,
+      selectedDatabase,
+      databaseInput: $("#databaseInput").value,
+      selectedProperty: $("#propSelect").value,
+      lastCalculationResult,
+      autoRefreshEnabled: $("#autoRefreshEnabled").checked,
+      refreshInterval: $("#refreshInterval").value,
+      timestamp: Date.now()
+    };
+    
+    localStorage.setItem('notion_app_state', JSON.stringify(state));
+    console.log("💾 앱 상태 저장 완료");
+  } catch (error) {
+    console.error("❌ 상태 저장 실패:", error);
+  }
+}
+
+function loadAppState() {
+  try {
+    const saved = localStorage.getItem('notion_app_state');
+    if (!saved) return null;
+    
+    const state = JSON.parse(saved);
+    
+    // 30일 이상 된 상태만 무시 (매우 오래된 데이터만 정리)
+    if (Date.now() - state.timestamp > 30 * 24 * 60 * 60 * 1000) {
+      console.log("📅 30일 이상 된 상태 데이터 정리");
+      localStorage.removeItem('notion_app_state');
+      return null;
+    }
+    
+    console.log("📂 저장된 앱 상태 발견:", state);
+    return state;
+  } catch (error) {
+    console.error("❌ 상태 복원 실패:", error);
+    return null;
+  }
+}
+
+function restoreAppState(state) {
+  if (!state) return false;
+  
+  try {
+    // 토큰이 있는지 먼저 확인
+    const token = getToken();
+    if (!token) {
+      console.log("⚠️ 토큰이 없어서 로그인 상태만 초기화");
+      // 토큰 없으면 로그인 관련 상태만 초기화
+      isLoggedIn = false;
+      userInfo = null;
+      // 나머지 데이터베이스 관련 상태는 유지
+      selectedDatabase = state.selectedDatabase;
+      lastCalculationResult = state.lastCalculationResult;
+    } else {
+      // 토큰이 있으면 모든 상태 복원
+      isLoggedIn = state.isLoggedIn || false;
+      userInfo = state.userInfo;
+      selectedDatabase = state.selectedDatabase;
+      lastCalculationResult = state.lastCalculationResult;
+    }
+    
+    // UI 요소 복원 (토큰 유무와 관계없이)
+    if (state.databaseInput) {
+      $("#databaseInput").value = state.databaseInput;
+    }
+    
+    if (state.autoRefreshEnabled) {
+      $("#autoRefreshEnabled").checked = true;
+    }
+    
+    if (state.refreshInterval) {
+      $("#refreshInterval").value = state.refreshInterval;
+    }
+    
+    // 로그인 상태 UI 복원 (토큰이 있을 때만)
+    if (isLoggedIn && userInfo && token) {
+      displayUserInfo(userInfo);
+      $("#loginBtn").classList.add("hidden");
+      $("#logoutBtn").classList.remove("hidden");
+      activateStep(2);
+    } else {
+      // 토큰이 없으면 로그인 버튼 표시
+      $("#loginBtn").classList.remove("hidden");
+      $("#logoutBtn").classList.add("hidden");
+      activateStep(1);
+    }
+    
+    // 데이터베이스 연결 상태 복원 (로그인과 무관하게)
+    if (selectedDatabase) {
+      setStatus("dbStatus", "💾 이전에 연결된 데이터베이스가 복원되었습니다.", "info");
+      activateStep(isLoggedIn ? 3 : 2);
+      
+      // 속성 복원
+      restoreDatabaseProperties(selectedDatabase.properties, state.selectedProperty);
+    }
+    
+    // 계산 결과 복원 (로그인과 무관하게)
+    if (lastCalculationResult) {
+      $("#resultNumber").textContent = formatNumber(lastCalculationResult.total || 0);
+      $("#resultLabel").textContent = `총 ${formatNumber(lastCalculationResult.count || 0)}개 항목의 합계`;
+      $("#lastUpdate").textContent = new Date(lastCalculationResult.timestamp).toLocaleString();
+      $("#resultBox").classList.remove("hidden");
+      
+      if (selectedDatabase) {
+        activateStep(isLoggedIn ? 4 : 2);
+        updateStepStatus(4, 'completed');
+        setStatus("calculateStatus", "💾 이전 계산 결과가 복원되었습니다.", "info");
+        
+        // 자동 새로고침은 로그인된 상태에서만 시작
+        if (state.autoRefreshEnabled && state.selectedProperty && isLoggedIn && token) {
+          setTimeout(() => {
+            startAutoRefresh();
+          }, 2000);
+        }
+      }
+    }
+    
+    console.log("✅ 앱 상태 복원 완료");
+    return true;
+  } catch (error) {
+    console.error("❌ 상태 복원 중 오류:", error);
+    return false;
+  }
+}
+
 // 토큰 관리 함수들
 function saveToken(token) {
   try {
@@ -281,8 +411,11 @@ function displayUserInfo(user) {
 // 디버그 정보 업데이트
 function updateDebugInfo() {
   const token = getToken();
+  const savedState = loadAppState();
+  
   $("#sessionDebug").textContent = token ? `존재 (${token.substring(0, 8)}...)` : "없음";
   $("#apiDebug").textContent = isLoggedIn ? "로그인됨" : "로그아웃됨";
+  $("#stateDebug").textContent = savedState ? "저장됨" : "없음";
 }
 
 // 로그인 상태 확인 with detailed debugging
@@ -431,6 +564,9 @@ async function connectDatabase() {
       
       setStatus("dbStatus", "✅ 데이터베이스가 성공적으로 연결되었습니다.", "success", true);
       
+      // 상태 저장
+      saveAppState();
+      
       // 다음 단계 활성화
       setTimeout(() => activateStep(3), 1000);
     } else {
@@ -480,6 +616,9 @@ async function loadProperties() {
     });
     
     setStatus("propStatus", `✅ ${properties.length}개의 숫자 속성을 불러왔습니다.`, "success", true);
+    
+    // 상태 저장
+    saveAppState();
     
     // 다음 단계 활성화
     setTimeout(() => activateStep(4), 1000);
@@ -543,6 +682,9 @@ async function calculateSum(silent = false) {
     
     // 결과 저장
     lastCalculationResult = currentResult;
+    
+    // 상태 저장
+    saveAppState();
     
   } catch (error) {
     if (!silent) {
@@ -667,9 +809,21 @@ document.addEventListener("DOMContentLoaded", async () => {
     // OAuth 토큰 처리 (우선순위)
     const hasOAuthToken = handleOAuthToken();
     
+    // 저장된 상태 복원 시도
+    const savedState = loadAppState();
+    let stateRestored = false;
+    
+    if (savedState && !hasOAuthToken) {
+      stateRestored = restoreAppState(savedState);
+      if (stateRestored) {
+        setStatus("loginStatus", "📂 이전 상태가 복원되었습니다.", "info", true);
+        updateDebugInfo();
+      }
+    }
+    
     if (hasOAuthToken) {
       console.log("🔑 OAuth 토큰 처리 중...");
-    } else {
+    } else if (!stateRestored) {
       // 연결 상태 테스트
       setStatus("loginStatus", "🔄 서버 연결 상태 확인 중...", "info");
       const isConnected = await testConnection();
@@ -707,24 +861,49 @@ document.addEventListener("DOMContentLoaded", async () => {
     $("#loadPropsBtn").addEventListener("click", withLoading($("#loadPropsBtn"), loadProperties));
     $("#calculateBtn").addEventListener("click", withLoading($("#calculateBtn"), () => calculateSum(false)));
     
-    // 자동 새로고침 관련 이벤트 리스너
-    $("#autoRefreshEnabled").addEventListener("change", function() {
-      if (this.checked) {
-        if (selectedDatabase && $("#propSelect").value) {
-          startAutoRefresh();
-        } else {
-          this.checked = false;
-          alert("먼저 데이터베이스를 연결하고 속성을 선택해주세요.");
-        }
-      } else {
-        stopAutoRefresh();
-      }
-    });
+    function restoreDatabaseProperties(properties, selectedProperty) {
+  if (!properties) return;
+  
+  const normalizedProps = normalizeProps(properties);
+  const select = $("#propSelect");
+  
+  // 옵션 초기화
+  select.innerHTML = '<option value="">속성을 선택하세요</option>';
+  
+  // 속성 옵션 추가
+  normalizedProps.forEach(prop => {
+    const option = document.createElement("option");
+    option.value = prop.name;
+    option.textContent = prop.displayName;
+    if (prop.name === selectedProperty) {
+      option.selected = true;
+    }
+    select.appendChild(option);
+  });
+  
+  if (normalizedProps.length > 0) {
+    setStatus("propStatus", `💾 ${normalizedProps.length}개의 숫자 속성이 복원되었습니다.`, "info");
+    if (selectedProperty && isLoggedIn) {
+      activateStep(4);
+    }
+  }
+}
     
     $("#refreshInterval").addEventListener("change", function() {
       if ($("#autoRefreshEnabled").checked) {
         startAutoRefresh(); // 간격 변경 시 재시작
       }
+      saveAppState(); // 설정 저장
+    });
+    
+    // 속성 선택 변경 시 상태 저장
+    $("#propSelect").addEventListener("change", function() {
+      saveAppState();
+    });
+    
+    // 데이터베이스 입력 변경 시 상태 저장
+    $("#databaseInput").addEventListener("input", function() {
+      saveAppState();
     });
     
     // 브라우저 가시성 변경 감지
