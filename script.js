@@ -108,7 +108,7 @@ function extractDbId(input) {
   throw new Error("올바른 Notion 데이터베이스 ID가 아닙니다.");
 }
 
-// 상태 저장/복원 함수들
+// 상태 저장/복원 함수들 (보안 개선)
 function saveAppState() {
   try {
     const state = {
@@ -123,6 +123,7 @@ function saveAppState() {
       timestamp: Date.now()
     };
     
+    // 앱 상태는 localStorage에 저장 (민감하지 않은 정보)
     localStorage.setItem('notion_app_state', JSON.stringify(state));
     console.log("💾 앱 상태 저장 완료");
   } catch (error) {
@@ -329,11 +330,15 @@ async function autoLoadProperties(state) {
   }
 }
 
-// 토큰 관리 함수들
+// 보안 개선된 토큰 관리 함수들
 function saveToken(token) {
   try {
-    localStorage.setItem('notion_access_token', token);
-    console.log("✅ 토큰 저장 완료");
+    // sessionStorage 사용 (더 안전)
+    sessionStorage.setItem('notion_access_token', token);
+    // 토큰 만료 시간 설정 (1시간)
+    const expiry = Date.now() + (60 * 60 * 1000);
+    sessionStorage.setItem('notion_token_expiry', expiry.toString());
+    console.log("✅ 토큰 저장 완료 (1시간 유효)");
     return true;
   } catch (error) {
     console.error("❌ 토큰 저장 실패:", error);
@@ -343,7 +348,19 @@ function saveToken(token) {
 
 function getToken() {
   try {
-    return localStorage.getItem('notion_access_token');
+    const token = sessionStorage.getItem('notion_access_token');
+    const expiry = sessionStorage.getItem('notion_token_expiry');
+    
+    // 토큰 만료 확인
+    if (token && expiry) {
+      if (Date.now() > parseInt(expiry)) {
+        console.log("⏰ 토큰 만료됨");
+        clearToken();
+        return null;
+      }
+      return token;
+    }
+    return null;
   } catch (error) {
     console.error("❌ 토큰 조회 실패:", error);
     return null;
@@ -352,7 +369,8 @@ function getToken() {
 
 function clearToken() {
   try {
-    localStorage.removeItem('notion_access_token');
+    sessionStorage.removeItem('notion_access_token');
+    sessionStorage.removeItem('notion_token_expiry');
     console.log("✅ 토큰 삭제 완료");
   } catch (error) {
     console.error("❌ 토큰 삭제 실패:", error);
