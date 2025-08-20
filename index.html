@@ -340,14 +340,20 @@
       </div>
       
       <div class="connection-guide" style="background: #fff3cd; border: 1px solid #ffeaa7; border-radius: 8px; padding: 15px; margin: 15px 0;">
-        <strong>📋 연결 방법:</strong>
-        <ol style="margin: 10px 0 0 20px; line-height: 1.6;">
+        <strong>📋 중요: 수동 연결 필수!</strong>
+        <p style="margin: 10px 0; color: #856404;">
+          OAuth 로그인 후에도 각 데이터베이스마다 Integration을 수동으로 연결해야 합니다.
+        </p>
+        <ol style="margin: 10px 0 0 20px; line-height: 1.6; color: #856404;">
           <li>Notion에서 집계할 <strong>데이터베이스 페이지</strong>로 이동</li>
           <li>페이지 우상단의 <strong>"⋯" (더보기)</strong> 버튼 클릭</li>
           <li><strong>"연결 추가"</strong> 또는 <strong>"Add connections"</strong> 선택</li>
-          <li><strong>"NotionDB-Aggregator"</strong> 또는 생성한 Integration 이름 검색 후 연결</li>
+          <li>생성한 Integration 이름을 검색하여 연결</li>
           <li>아래에 데이터베이스 URL 입력 후 연결 테스트</li>
         </ol>
+        <p style="margin: 10px 0 0 0; color: #856404; font-size: 14px;">
+          💡 <strong>팁:</strong> Integration 이름은 Notion Developer 콘솔에서 확인할 수 있습니다.
+        </p>
       </div>
       
       <label for="databaseInput">데이터베이스 URL 또는 ID</label>
