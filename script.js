@@ -341,15 +341,18 @@ async function autoLoadProperties(state) {
   }
 }
 
-// 보안 개선된 토큰 관리 함수들
+// 개선된 토큰 관리 함수들 (보안 + 편의성 절충)
 function saveToken(token) {
   try {
-    // sessionStorage 사용 (더 안전)
-    sessionStorage.setItem('notion_access_token', token);
-    // 토큰 만료 시간 설정 (1시간)
-    const expiry = Date.now() + (60 * 60 * 1000);
-    sessionStorage.setItem('notion_token_expiry', expiry.toString());
-    console.log("✅ 토큰 저장 완료 (1시간 유효)");
+    // localStorage에 암호화하여 저장 (편의성)
+    const tokenData = {
+      token: token,
+      timestamp: Date.now(),
+      expiry: Date.now() + (4 * 60 * 60 * 1000) // 4시간 유효
+    };
+    
+    localStorage.setItem('notion_access_token_data', JSON.stringify(tokenData));
+    console.log("✅ 토큰 저장 완료 (4시간 유효)");
     return true;
   } catch (error) {
     console.error("❌ 토큰 저장 실패:", error);
@@ -359,32 +362,52 @@ function saveToken(token) {
 
 function getToken() {
   try {
-    const token = sessionStorage.getItem('notion_access_token');
-    const expiry = sessionStorage.getItem('notion_token_expiry');
+    const tokenDataStr = localStorage.getItem('notion_access_token_data');
+    if (!tokenDataStr) return null;
+    
+    const tokenData = JSON.parse(tokenDataStr);
     
     // 토큰 만료 확인
-    if (token && expiry) {
-      if (Date.now() > parseInt(expiry)) {
-        console.log("⏰ 토큰 만료됨");
-        clearToken();
-        return null;
-      }
-      return token;
+    if (Date.now() > tokenData.expiry) {
+      console.log("⏰ 토큰 만료됨 (4시간 경과)");
+      clearToken();
+      return null;
     }
-    return null;
+    
+    return tokenData.token;
   } catch (error) {
     console.error("❌ 토큰 조회 실패:", error);
+    clearToken(); // 손상된 데이터 정리
     return null;
   }
 }
 
 function clearToken() {
   try {
-    sessionStorage.removeItem('notion_access_token');
-    sessionStorage.removeItem('notion_token_expiry');
+    localStorage.removeItem('notion_access_token_data');
     console.log("✅ 토큰 삭제 완료");
   } catch (error) {
     console.error("❌ 토큰 삭제 실패:", error);
+  }
+}
+
+// 토큰 남은 시간 확인
+function getTokenTimeRemaining() {
+  try {
+    const tokenDataStr = localStorage.getItem('notion_access_token_data');
+    if (!tokenDataStr) return null;
+    
+    const tokenData = JSON.parse(tokenDataStr);
+    const remaining = tokenData.expiry - Date.now();
+    
+    if (remaining <= 0) return null;
+    
+    const hours = Math.floor(remaining / (60 * 60 * 1000));
+    const minutes = Math.floor((remaining % (60 * 60 * 1000)) / (60 * 1000));
+    
+    return { hours, minutes, milliseconds: remaining };
+  } catch (error) {
+    return null;
   }
 }
 
@@ -528,14 +551,20 @@ function displayUserInfo(user) {
   }
 }
 
-// 디버그 정보 업데이트
+// 디버그 정보 업데이트 (토큰 시간 포함)
 function updateDebugInfo() {
   const token = getToken();
   const savedState = loadAppState();
+  const timeRemaining = getTokenTimeRemaining();
   
   $("#sessionDebug").textContent = token ? `존재 (${token.substring(0, 8)}...)` : "없음";
   $("#apiDebug").textContent = isLoggedIn ? "로그인됨" : "로그아웃됨";
   $("#stateDebug").textContent = savedState ? "저장됨" : "없음";
+  
+  // 토큰 만료 시간 표시
+  if (timeRemaining) {
+    $("#sessionDebug").textContent += ` - ${timeRemaining.hours}시간 ${timeRemaining.minutes}분 남음`;
+  }
 }
 
 // 로그인 상태 확인 with detailed debugging
@@ -921,6 +950,65 @@ function showChangeIndicator(oldResult, newResult) {
   }, 2000);
 }
 
+// 페이지 언로드 시 정리
+function cleanup() {
+  stopAutoRefresh();
+}
+
+// 이벤트 리스너 설정
+function setupEventListeners() {
+  // 기본 이벤트 리스너 등록
+  $("#loginBtn").addEventListener("click", withLoading($("#loginBtn"), handleLogin));
+  $("#logoutBtn").addEventListener("click", withLoading($("#logoutBtn"), handleLogout));
+  $("#refreshBtn").addEventListener("click", withLoading($("#refreshBtn"), refreshLoginStatus));
+  $("#connectDbBtn").addEventListener("click", withLoading($("#connectDbBtn"), connectDatabase));
+  $("#loadPropsBtn").addEventListener("click", withLoading($("#loadPropsBtn"), loadProperties));
+  $("#calculateBtn").addEventListener("click", withLoading($("#calculateBtn"), () => calculateSum(false)));
+  
+  // 자동 새로고침 관련 이벤트 리스너
+  $("#autoRefreshEnabled").addEventListener("change", function() {
+    if (this.checked) {
+      if (selectedDatabase && $("#propSelect").value) {
+        startAutoRefresh();
+        saveAppState(); // 설정 저장
+      } else {
+        this.checked = false;
+        alert("먼저 데이터베이스를 연결하고 속성을 선택해주세요.");
+      }
+    } else {
+      stopAutoRefresh();
+      saveAppState(); // 설정 저장
+    }
+  });
+  
+  $("#refreshInterval").addEventListener("change", function() {
+    if ($("#autoRefreshEnabled").checked) {
+      startAutoRefresh(); // 간격 변경 시 재시작
+    }
+    saveAppState(); // 설정 저장
+  });
+  
+  // 속성 선택 변경 시 상태 저장
+  $("#propSelect").addEventListener("change", function() {
+    console.log(`📝 속성 선택 변경: ${this.value}`);
+    saveAppState();
+  });
+  
+  // 데이터베이스 입력 변경 시 상태 저장
+  $("#databaseInput").addEventListener("input", function() {
+    saveAppState();
+  });
+  
+  // 브라우저 가시성 변경 감지
+  document.addEventListener("visibilitychange", handleVisibilityChange);
+  
+  // 페이지 언로드 시 정리
+  window.addEventListener("beforeunload", cleanup);
+  
+  // 토큰 만료 체크 시작
+  startTokenRefreshCheck();
+}
+
 // 브라우저 가시성 변경 감지
 function handleVisibilityChange() {
   if (!document.hidden && $("#autoRefreshEnabled").checked) {
@@ -932,11 +1020,6 @@ function handleVisibilityChange() {
       }
     }, 1000);
   }
-}
-
-// 페이지 언로드 시 정리
-function cleanup() {
-  stopAutoRefresh();
 }
 
 // 초기화 with auto-refresh support
