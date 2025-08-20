@@ -263,7 +263,7 @@ async function autoConnectDatabase(state) {
   }
 }
 
-// 자동 속성 로딩 함수
+// 자동 속성 로딩 함수 (개선)
 async function autoLoadProperties(state) {
   try {
     setStatus("propStatus", "🔄 저장된 속성 자동 복원 중...", "info");
@@ -279,20 +279,23 @@ async function autoLoadProperties(state) {
     }
     
     // 속성 옵션 추가 및 이전 선택값 복원
+    let selectedFound = false;
     properties.forEach(prop => {
       const option = document.createElement("option");
       option.value = prop.name;
       option.textContent = prop.displayName;
       if (prop.name === state.selectedProperty) {
         option.selected = true;
+        selectedFound = true;
       }
       select.appendChild(option);
     });
     
     setStatus("propStatus", `✅ ${properties.length}개의 속성이 자동으로 복원되었습니다.`, "success");
     
-    // 이전에 선택된 속성이 있으면 자동으로 계산까지 수행
-    if (state.selectedProperty && select.value === state.selectedProperty) {
+    // 이전에 선택된 속성이 있고 실제로 선택되었으면 자동으로 계산까지 수행
+    if (state.selectedProperty && selectedFound) {
+      console.log(`🎯 선택된 속성 복원됨: ${state.selectedProperty}`);
       activateStep(4);
       updateStepStatus(4, 'completed');
       
@@ -305,20 +308,28 @@ async function autoLoadProperties(state) {
         $("#resultBox").classList.remove("hidden");
         setStatus("calculateStatus", "✅ 모든 설정이 자동으로 복원되었습니다. 실시간 업데이트가 시작됩니다.", "success");
         
-        // 자동 새로고침 시작
-        if (state.autoRefreshEnabled) {
+        // 자동 새로고침 시작 (체크되어 있다면)
+        if (state.autoRefreshEnabled && $("#autoRefreshEnabled").checked) {
           setTimeout(() => {
+            console.log("🔄 자동 새로고침 시작");
             startAutoRefresh();
-            console.log("🔄 자동 새로고침이 시작되었습니다.");
           }, 3000); // 3초 후 시작
         }
         
         // 한 번 즉시 업데이트
         setTimeout(() => {
+          console.log("🔄 즉시 업데이트 실행");
           calculateSum(true); // silent 모드로 즉시 업데이트
         }, 5000); // 5초 후 첫 업데이트
+      } else {
+        // 계산 결과가 없으면 한 번 계산
+        setTimeout(() => {
+          console.log("🔄 초기 계산 실행");
+          calculateSum(false);
+        }, 3000);
       }
     } else {
+      console.log("⚠️ 선택된 속성을 찾을 수 없어서 수동 선택 필요");
       activateStep(3);
       setStatus("propStatus", "속성을 선택한 후 합계 계산을 진행해주세요.", "info");
     }
@@ -822,10 +833,22 @@ async function calculateSum(silent = false) {
   }
 }
 
-// 자동 새로고침 관련 함수들
+// 자동 새로고침 관련 함수들 (개선)
 function startAutoRefresh() {
   const intervalSeconds = parseInt($("#refreshInterval").value);
   const intervalMs = intervalSeconds * 1000;
+  
+  // 자동 새로고침 전 필수 조건 확인
+  if (!selectedDatabase) {
+    console.log("❌ 자동 새로고침 실패: 데이터베이스 미연결");
+    return false;
+  }
+  
+  const selectedProp = $("#propSelect").value;
+  if (!selectedProp) {
+    console.log("❌ 자동 새로고침 실패: 속성 미선택");
+    return false;
+  }
   
   // 기존 interval 정리
   if (autoRefreshInterval) {
@@ -836,11 +859,14 @@ function startAutoRefresh() {
     if (!isCalculating && selectedDatabase && $("#propSelect").value) {
       console.log("🔄 자동 새로고침 실행");
       await calculateSum(true); // silent 모드
+    } else {
+      console.log("⏸️ 자동 새로고침 조건 불충족 - 대기");
     }
   }, intervalMs);
   
   updateAutoRefreshStatus();
-  console.log(`✅ 자동 새로고침 시작: ${intervalSeconds}초 간격`);
+  console.log(`✅ 자동 새로고침 시작: ${intervalSeconds}초 간격, 속성: ${selectedProp}`);
+  return true;
 }
 
 function stopAutoRefresh() {
