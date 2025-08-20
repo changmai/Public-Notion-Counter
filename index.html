@@ -225,21 +225,6 @@
       font-size: 1.1em;
     }
     
-    @keyframes pulse {
-      0% { transform: scale(1); opacity: 1; }
-      50% { transform: scale(1.02); opacity: 0.8; }
-      100% { transform: scale(1); opacity: 1; }
-    }
-    
-    @keyframes fadeIn {
-      from { opacity: 0; transform: translateY(10px); }
-      to { opacity: 1; transform: translateY(0); }
-    }
-    
-    .fade-in {
-      animation: fadeIn 0.5s ease;
-    }
-    
     .user-info {
       background: #e8f5e8;
       padding: 15px;
@@ -267,6 +252,74 @@
       animation: pulse 2s infinite;
     }
     
+    .auto-refresh-controls {
+      background: #e8f5e8;
+      padding: 15px;
+      border-radius: 8px;
+      margin: 15px 0;
+    }
+    
+    .auto-refresh-controls > div:first-child {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+    
+    .auto-refresh-controls label {
+      margin: 0;
+      font-size: 14px;
+    }
+    
+    .auto-refresh-controls input[type="checkbox"] {
+      width: auto;
+      margin-right: 8px;
+    }
+    
+    .auto-refresh-controls select {
+      width: auto;
+      padding: 5px;
+      margin: 0;
+    }
+    
+    .connection-guide {
+      background: #fff3cd;
+      border: 1px solid #ffeaa7;
+      border-radius: 8px;
+      padding: 15px;
+      margin: 15px 0;
+    }
+    
+    .connection-guide ol {
+      margin: 10px 0 0 20px;
+      line-height: 1.6;
+      color: #856404;
+    }
+    
+    .connection-guide li {
+      margin-bottom: 5px;
+    }
+    
+    .connection-guide p {
+      margin: 10px 0;
+      color: #856404;
+    }
+    
+    @keyframes pulse {
+      0% { transform: scale(1); opacity: 1; }
+      50% { transform: scale(1.02); opacity: 0.8; }
+      100% { transform: scale(1); opacity: 1; }
+    }
+    
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(10px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    
+    .fade-in {
+      animation: fadeIn 0.5s ease;
+    }
     
     @media (max-width: 768px) {
       .container {
@@ -288,6 +341,11 @@
       
       .connection-guide ol {
         margin-left: 15px;
+      }
+      
+      .auto-refresh-controls > div:first-child {
+        flex-direction: column;
+        align-items: flex-start;
       }
     }
   </style>
@@ -336,22 +394,21 @@
       </div>
       <div class="step-description">
         집계하고 싶은 Notion 데이터베이스를 연결하세요.
-        <br><strong>⚠️ 중요:</strong> 데이터베이스에 Integration을 수동으로 연결해야 합니다.
       </div>
       
-      <div class="connection-guide" style="background: #fff3cd; border: 1px solid #ffeaa7; border-radius: 8px; padding: 15px; margin: 15px 0;">
+      <div class="connection-guide">
         <strong>📋 중요: 수동 연결 필수!</strong>
-        <p style="margin: 10px 0; color: #856404;">
+        <p>
           OAuth 로그인 후에도 각 데이터베이스마다 Integration을 수동으로 연결해야 합니다.
         </p>
-        <ol style="margin: 10px 0 0 20px; line-height: 1.6; color: #856404;">
+        <ol>
           <li>Notion에서 집계할 <strong>데이터베이스 페이지</strong>로 이동</li>
           <li>페이지 우상단의 <strong>"⋯" (더보기)</strong> 버튼 클릭</li>
           <li><strong>"연결 추가"</strong> 또는 <strong>"Add connections"</strong> 선택</li>
           <li>생성한 Integration 이름을 검색하여 연결</li>
           <li>아래에 데이터베이스 URL 입력 후 연결 테스트</li>
         </ol>
-        <p style="margin: 10px 0 0 0; color: #856404; font-size: 14px;">
+        <p style="font-size: 14px;">
           💡 <strong>팁:</strong> Integration 이름은 Notion Developer 콘솔에서 확인할 수 있습니다.
         </p>
       </div>
@@ -394,17 +451,17 @@
         선택한 속성의 모든 값을 합계합니다.
       </div>
       
-      <div class="auto-refresh-controls" style="background: #e8f5e8; padding: 15px; border-radius: 8px; margin: 15px 0;">
-        <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px;">
+      <div class="auto-refresh-controls">
+        <div>
           <div>
-            <label style="margin: 0; font-size: 14px;">
-              <input type="checkbox" id="autoRefreshEnabled" style="width: auto; margin-right: 8px;">
+            <label>
+              <input type="checkbox" id="autoRefreshEnabled">
               자동 새로고침 사용
             </label>
           </div>
           <div style="display: flex; align-items: center; gap: 10px;">
-            <label for="refreshInterval" style="margin: 0; font-size: 14px;">간격:</label>
-            <select id="refreshInterval" style="width: auto; padding: 5px; margin: 0;">
+            <label for="refreshInterval">간격:</label>
+            <select id="refreshInterval">
               <option value="30">30초</option>
               <option value="60" selected>1분</option>
               <option value="300">5분</option>
