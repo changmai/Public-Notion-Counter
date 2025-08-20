@@ -232,18 +232,15 @@ function restoreAppState(state) {
   }
 }
 
-// 자동 데이터베이스 연결 함수 (개선)
+// 자동 데이터베이스 연결 함수
 async function autoConnectDatabase(state) {
   try {
-    console.log("🔄 자동 데이터베이스 연결 시작:", state.databaseInput);
     setStatus("dbStatus", "🔄 저장된 데이터베이스 자동 연결 중...", "info");
     
     const databaseId = extractDbId(state.databaseInput);
-    console.log("📋 추출된 DB ID:", databaseId);
     
     // 데이터베이스 접근 테스트
     const response = await callProxy("/props", { databaseId });
-    console.log("📡 DB 연결 응답:", response);
     
     if (response.ok) {
       selectedDatabase = {
@@ -251,140 +248,18 @@ async function autoConnectDatabase(state) {
         properties: response.props
       };
       
-      console.log("✅ 데이터베이스 자동 연결 성공");
-      console.log("🗃️ 로드된 속성들:", Object.keys(response.props || {}));
-      
       setStatus("dbStatus", "✅ 데이터베이스가 자동으로 연결되었습니다.", "success");
       
-      // 속성 즉시 복원 (지연 없이)
-      await restorePropertiesImmediately(state);
+      // 속성 자동 복원
+      await autoLoadProperties(state);
       
     } else {
       throw new Error("데이터베이스 자동 연결에 실패했습니다.");
     }
   } catch (error) {
-    console.error("❌ 자동 연결 실패:", error);
+    console.error("자동 연결 실패:", error);
     setStatus("dbStatus", "⚠️ 자동 연결 실패. 수동으로 '데이터베이스 연결 테스트' 버튼을 클릭해주세요.", "error");
     activateStep(2);
-  }
-}
-
-// 속성 즉시 복원 함수 (새로 추가)
-async function restorePropertiesImmediately(state) {
-  try {
-    console.log("🔄 속성 즉시 복원 시작");
-    console.log("🎯 복원할 속성:", state.selectedProperty);
-    
-    if (!selectedDatabase || !selectedDatabase.properties) {
-      throw new Error("데이터베이스 속성 정보가 없습니다.");
-    }
-    
-    const properties = normalizeProps(selectedDatabase.properties);
-    console.log("📋 정규화된 속성들:", properties.map(p => p.name));
-    
-    const select = $("#propSelect");
-    
-    // 옵션 완전 초기화
-    select.innerHTML = '';
-    
-    // 기본 옵션 추가
-    const defaultOption = document.createElement("option");
-    defaultOption.value = "";
-    defaultOption.textContent = "속성을 선택하세요";
-    select.appendChild(defaultOption);
-    
-    if (properties.length === 0) {
-      throw new Error("집계 가능한 숫자 속성이 없습니다.");
-    }
-    
-    // 속성 옵션 추가
-    let targetOption = null;
-    properties.forEach(prop => {
-      const option = document.createElement("option");
-      option.value = prop.name;
-      option.textContent = prop.displayName;
-      select.appendChild(option);
-      
-      if (prop.name === state.selectedProperty) {
-        targetOption = option;
-        console.log("🎯 대상 속성 옵션 생성:", prop.name);
-      }
-    });
-    
-    // 강제로 속성 선택
-    if (targetOption && state.selectedProperty) {
-      targetOption.selected = true;
-      select.value = state.selectedProperty;
-      
-      // 선택 확인
-      console.log("✅ 속성 선택 시도 완료");
-      console.log("📋 선택된 값:", select.value);
-      console.log("📋 선택된 인덱스:", select.selectedIndex);
-      
-      // DOM 이벤트 발생시켜서 확실히 선택되도록 함
-      const changeEvent = new Event('change', { bubbles: true });
-      select.dispatchEvent(changeEvent);
-      
-      setStatus("propStatus", `✅ ${properties.length}개의 속성이 복원되었습니다. 선택: ${state.selectedProperty}`, "success");
-      
-      // 상태 저장
-      saveAppState();
-      
-      // 계산 결과 복원 및 자동 시작
-      await finalizeRestoration(state);
-      
-    } else {
-      console.log("⚠️ 선택할 속성을 찾을 수 없음");
-      setStatus("propStatus", `⚠️ 이전 속성 "${state.selectedProperty}"을 찾을 수 없습니다. 다시 선택해주세요.`, "error");
-      activateStep(3);
-    }
-    
-  } catch (error) {
-    console.error("❌ 속성 즉시 복원 실패:", error);
-    setStatus("propStatus", `❌ 속성 복원 실패: ${error.message}`, "error");
-    activateStep(3);
-  }
-}
-
-// 최종 복원 완료 함수 (새로 추가)
-async function finalizeRestoration(state) {
-  try {
-    console.log("🎉 최종 복원 단계 시작");
-    
-    activateStep(4);
-    updateStepStatus(4, 'completed');
-    
-    // 계산 결과 복원
-    if (state.lastCalculationResult) {
-      lastCalculationResult = state.lastCalculationResult;
-      $("#resultNumber").textContent = formatNumber(lastCalculationResult.total || 0);
-      $("#resultLabel").textContent = `총 ${formatNumber(lastCalculationResult.count || 0)}개 항목의 합계`;
-      $("#lastUpdate").textContent = new Date(lastCalculationResult.timestamp).toLocaleString();
-      $("#resultBox").classList.remove("hidden");
-      setStatus("calculateStatus", "✅ 모든 설정이 완전히 복원되었습니다!", "success");
-    }
-    
-    // 자동 새로고침 시작 (체크되어 있다면)
-    if (state.autoRefreshEnabled && $("#autoRefreshEnabled").checked) {
-      console.log("🔄 자동 새로고침 시작 예약");
-      setTimeout(() => {
-        const success = startAutoRefresh();
-        if (success) {
-          console.log("✅ 자동 새로고침 시작됨");
-        } else {
-          console.log("❌ 자동 새로고침 시작 실패");
-        }
-      }, 2000);
-    }
-    
-    // 즉시 한 번 업데이트
-    setTimeout(() => {
-      console.log("🔄 즉시 업데이트 실행");
-      calculateSum(true);
-    }, 3000);
-    
-  } catch (error) {
-    console.error("❌ 최종 복원 실패:", error);
   }
 }
 
@@ -1059,91 +934,9 @@ function handleVisibilityChange() {
   }
 }
 
-    console.log("✅ 웹앱 초기화 완료");
-    
-  } catch (error) {
-    console.error("❌ 초기화 오류:", error);
-    setStatus("loginStatus", `❌ 초기화 오류: ${error.message}`, "error");
-  }
-});
-  try {
-    console.log("🔍 완전 복원 검증 시작");
-    
-    const token = getToken();
-    const select = $("#propSelect");
-    const selectedValue = select.value;
-    
-    console.log("🔍 검증 상태:");
-    console.log("  - 토큰:", token ? "있음" : "없음");
-    console.log("  - 로그인:", isLoggedIn);
-    console.log("  - 데이터베이스:", selectedDatabase ? "연결됨" : "없음");
-    console.log("  - 드롭다운 옵션 수:", select.options.length);
-    console.log("  - 현재 선택값:", selectedValue);
-    console.log("  - 원하는 값:", savedState.selectedProperty);
-    console.log("  - 자동새로고침:", $("#autoRefreshEnabled").checked);
-    
-    if (!token || !isLoggedIn || !selectedDatabase) {
-      console.log("❌ 기본 조건 불충족");
-      return;
-    }
-    
-    if (selectedValue === savedState.selectedProperty && savedState.selectedProperty) {
-      console.log("✅ 모든 복원 완료 - 자동 기능 시작");
-      
-      if ($("#autoRefreshEnabled").checked) {
-        const success = startAutoRefresh();
-        console.log("🔄 자동 새로고침:", success ? "시작됨" : "실패");
-      }
-      
-      // 즉시 계산
-      setTimeout(() => {
-        calculateSum(true);
-      }, 1000);
-      
-    } else {
-      console.log("❌ 속성 선택 불일치 - 강제 복원 시도");
-      
-      // 강제 복원 시도
-      let found = false;
-      for (let i = 0; i < select.options.length; i++) {
-        const option = select.options[i];
-        if (option.value === savedState.selectedProperty) {
-          option.selected = true;
-          select.selectedIndex = i;
-          select.value = savedState.selectedProperty;
-          
-          // change 이벤트 강제 발생
-          const event = new Event('change', { bubbles: true });
-          select.dispatchEvent(event);
-          
-          found = true;
-          console.log("🔧 강제 선택 완료:", savedState.selectedProperty);
-          break;
-        }
-      }
-      
-      if (found) {
-        // 상태 다시 저장
-        saveAppState();
-        
-        if ($("#autoRefreshEnabled").checked) {
-          setTimeout(() => {
-            startAutoRefresh();
-          }, 1000);
-        }
-        
-        setTimeout(() => {
-          calculateSum(true);
-        }, 2000);
-      } else {
-        console.log("❌ 속성을 찾을 수 없음 - 수동 선택 필요");
-        setStatus("propStatus", `⚠️ 속성 "${savedState.selectedProperty}"을 찾을 수 없습니다. 수동으로 선택해주세요.`, "error");
-      }
-    }
-    
-  } catch (error) {
-    console.error("❌ 복원 검증 오류:", error);
-  }
+// 페이지 언로드 시 정리
+function cleanup() {
+  stopAutoRefresh();
 }
 
 // 초기화 with auto-refresh support
@@ -1269,7 +1062,10 @@ document.addEventListener("DOMContentLoaded", async () => {
     // 페이지 언로드 시 정리
     window.addEventListener("beforeunload", cleanup);
     
-// 페이지 언로드 시 정리
-function cleanup() {
-  stopAutoRefresh();
-}
+    console.log("✅ 웹앱 초기화 완료");
+    
+  } catch (error) {
+    console.error("❌ 초기화 오류:", error);
+    setStatus("loginStatus", `❌ 초기화 오류: ${error.message}`, "error");
+  }
+});
