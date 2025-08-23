@@ -4,7 +4,6 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>📊 Notion 데이터베이스 집계 도구</title>
-  <script defer src="script.js"></script>
   <style>
     * {
       box-sizing: border-box;
@@ -262,7 +261,7 @@
     .auto-refresh-controls > div:first-child {
       display: flex;
       align-items: center;
-      justify-content: space-between;
+      justify-content: center;
       flex-wrap: wrap;
       gap: 10px;
     }
@@ -270,17 +269,13 @@
     .auto-refresh-controls label {
       margin: 0;
       font-size: 14px;
+      font-weight: bold;
+      color: #27ae60;
     }
     
     .auto-refresh-controls input[type="checkbox"] {
       width: auto;
       margin-right: 8px;
-    }
-    
-    .auto-refresh-controls select {
-      width: auto;
-      padding: 5px;
-      margin: 0;
     }
     
     .connection-guide {
@@ -304,6 +299,37 @@
     .connection-guide p {
       margin: 10px 0;
       color: #856404;
+    }
+    
+    /* GIF 관련 스타일 */
+    .gif-container {
+      margin: 20px 0;
+      text-align: center;
+    }
+    
+    .gif-container canvas {
+      border-radius: 15px;
+      box-shadow: 0 8px 25px rgba(0,0,0,0.3);
+      margin-bottom: 15px;
+    }
+    
+    .gif-container a {
+      color: #3498db;
+      text-decoration: none;
+      word-break: break-all;
+    }
+    
+    .gif-container a:hover {
+      text-decoration: underline;
+    }
+    
+    .gif-container img {
+      cursor: pointer;
+      transition: transform 0.3s ease;
+    }
+    
+    .gif-container img:hover {
+      transform: scale(1.05);
     }
     
     @keyframes pulse {
@@ -345,7 +371,11 @@
       
       .auto-refresh-controls > div:first-child {
         flex-direction: column;
-        align-items: flex-start;
+        align-items: center;
+      }
+      
+      .gif-container img {
+        max-width: 150px;
       }
     }
   </style>
@@ -353,7 +383,7 @@
 <body>
   <div class="container">
     <h1>📊 Notion DB 집계</h1>
-    <p class="subtitle">간편하게 Notion 데이터베이스의 숫자를 합계해보세요</p>
+    <p class="subtitle">간편하게 Notion 데이터베이스의 숫자를 합계해보세요 (실시간 GIF 카운터)</p>
 
     <!-- Step 1: 로그인 -->
     <div class="step" id="step1">
@@ -373,7 +403,7 @@
         </div>
       </div>
       
-      <button id="loginBtn">🔐 Notion으로 로그인</button>
+      <button id="loginBtn">🔑 Notion으로 로그인</button>
       <button id="logoutBtn" class="hidden" style="background: #e74c3c;">🚪 로그아웃</button>
       <button id="refreshBtn" class="hidden" style="background: #f39c12; margin-top: 10px;">🔄 로그인 상태 새로고침</button>
       
@@ -446,33 +476,21 @@
     <div class="step" id="step4">
       <div class="step-header">
         <div class="step-number">4</div>
-        <div class="step-title">합계 계산</div>
+        <div class="step-title">합계 계산 (GIF 출력)</div>
       </div>
       <div class="step-description">
-        선택한 속성의 모든 값을 합계합니다.
+        선택한 속성의 모든 값을 합계하고 애니메이션 GIF로 표시합니다.
       </div>
       
       <div class="auto-refresh-controls">
         <div>
-          <div>
-            <label>
-              <input type="checkbox" id="autoRefreshEnabled">
-              자동 새로고침 사용
-            </label>
-          </div>
-          <div style="display: flex; align-items: center; gap: 10px;">
-            <label for="refreshInterval">간격:</label>
-            <select id="refreshInterval">
-              <option value="30">30초</option>
-              <option value="60" selected>1분</option>
-              <option value="300">5분</option>
-              <option value="600">10분</option>
-              <option value="1800">30분</option>
-            </select>
-          </div>
+          <label>
+            <input type="checkbox" id="autoRefreshEnabled">
+            🔄 자동 업데이트 (1분 간격 고정)
+          </label>
         </div>
         <div id="autoRefreshStatus" style="margin-top: 10px; font-size: 12px; color: #666;">
-          자동 새로고침이 비활성화되어 있습니다.
+          자동 업데이트가 비활성화되어 있습니다.
         </div>
       </div>
       
@@ -490,5 +508,7 @@
       </div>
     </div>
   </div>
+
+  <script src="script.js"></script>
 </body>
 </html>
